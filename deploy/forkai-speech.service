@@ -1,0 +1,13 @@
+[Unit]
+Description=forkAI speech mock/offline adapter
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/forkai
+ExecStart=/usr/bin/npm run start -w @forkai/speech
+Restart=on-failure
+Environment=SPEECH_PORT=19001
+
+[Install]
+WantedBy=multi-user.target
