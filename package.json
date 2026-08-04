@@ -12,7 +12,8 @@
     "dev:web": "npm run dev -w @forkai/web",
     "dev:gateway": "npm run dev -w @forkai/voice-gateway",
     "dev:speech": "npm run dev -w @forkai/speech",
-    "dev": "npm run dev:speech & npm run dev:gateway & npm run dev:web",
+    "dev:mock": "npm run dev -w @forkai/mock-jarvis",
+    "dev": "npm run dev:mock & npm run dev:speech & npm run dev:gateway & npm run dev:web",
     "build": "npm run build -w @forkai/shared && npm run build -w @forkai/speech && npm run build -w @forkai/voice-gateway && npm run build -w @forkai/web",
     "typecheck": "npm run typecheck -w @forkai/web"
   }

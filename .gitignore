@@ -7,3 +7,4 @@ dist
 apps/web/dist
 services/*/dist
 packages/*/dist
+.node20/
