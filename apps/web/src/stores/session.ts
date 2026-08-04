@@ -26,6 +26,17 @@ function speakBrowser(text: string, style: string) {
   window.speechSynthesis.speak(u)
 }
 
+/** 播放 base64 音频（piper wav）；返回是否成功起播。 */
+function playBase64Audio(audioBase64: string): boolean {
+  try {
+    const audio = new Audio(`data:audio/wav;base64,${audioBase64}`)
+    void audio.play()
+    return true
+  } catch {
+    return false
+  }
+}
+
 let eventWs: EventWs | null = null
 
 export const useSessionStore = defineStore('session', {
@@ -66,7 +77,11 @@ export const useSessionStore = defineStore('session', {
         this.pushLog(`TTS: ${text}`)
         const target = msg.payload?.target || 'device'
         if (target === 'device' || target === 'both') {
-          speakBrowser(text, msg.payload?.style || 'ok')
+          const audioBase64 = msg.payload?.audioBase64
+          // 有真实音频（piper）优先播放；否则回退浏览器 speechSynthesis
+          if (!audioBase64 || !playBase64Audio(audioBase64)) {
+            speakBrowser(text, msg.payload?.style || 'ok')
+          }
         }
       }
       if (msg.type === 'intent') {
