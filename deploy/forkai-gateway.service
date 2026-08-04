@@ -5,13 +5,15 @@ Wants=forkai-speech.service
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/forkai
-ExecStart=/usr/bin/npm run start -w @forkai/voice-gateway
-Restart=on-failure
+WorkingDirectory=/usr/local/forkai
+Environment=PATH=/usr/local/forkai/.node20/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 Environment=JARVIS_BASE_URL=http://127.0.0.1:8080
 Environment=SPEECH_BASE_URL=http://127.0.0.1:19001
 Environment=FORKAI_PORT=19000
 Environment=VEHICLE_ID=fork-01
+ExecStart=/usr/local/forkai/.node20/bin/npm run start -w @forkai/voice-gateway
+Restart=on-failure
+RestartSec=2
 
 [Install]
 WantedBy=multi-user.target

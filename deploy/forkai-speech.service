@@ -1,13 +1,15 @@
 [Unit]
-Description=forkAI speech mock/offline adapter
+Description=forkAI speech (piper offline TTS / ASR adapter)
 After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/forkai
-ExecStart=/usr/bin/npm run start -w @forkai/speech
-Restart=on-failure
+WorkingDirectory=/usr/local/forkai
+Environment=PATH=/usr/local/forkai/.node20/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 Environment=SPEECH_PORT=19001
+ExecStart=/usr/local/forkai/.node20/bin/npm run start -w @forkai/speech
+Restart=on-failure
+RestartSec=2
 
 [Install]
 WantedBy=multi-user.target
