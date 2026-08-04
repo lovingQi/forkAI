@@ -26,14 +26,23 @@ function speakBrowser(text: string, style: string) {
   window.speechSynthesis.speak(u)
 }
 
-/** 播放 base64 音频（piper wav）；返回是否成功起播。 */
-function playBase64Audio(audioBase64: string): boolean {
+/** 播放 base64 音频（piper wav）。autoplay 被拦截或出错时回退浏览器 TTS。 */
+function playBase64Audio(audioBase64: string, text: string, style: string) {
   try {
     const audio = new Audio(`data:audio/wav;base64,${audioBase64}`)
-    void audio.play()
-    return true
-  } catch {
-    return false
+    const p = audio.play()
+    if (p && typeof p.catch === 'function') {
+      p.then(() => console.log('[forkai] 走 piper 音频播放'))
+        .catch((e) => {
+          console.warn('[forkai] piper 音频被拦截，回退 speechSynthesis:', e?.name || e)
+          speakBrowser(text, style)
+        })
+    } else {
+      console.log('[forkai] 走 piper 音频播放')
+    }
+  } catch (e) {
+    console.warn('[forkai] piper 音频构造失败，回退 speechSynthesis:', e)
+    speakBrowser(text, style)
   }
 }
 
@@ -78,9 +87,14 @@ export const useSessionStore = defineStore('session', {
         const target = msg.payload?.target || 'device'
         if (target === 'device' || target === 'both') {
           const audioBase64 = msg.payload?.audioBase64
+          const style = msg.payload?.style || 'ok'
+          console.log('[forkai] tts 事件: text=%s audioBase64长度=%d', text, (audioBase64 || '').length)
           // 有真实音频（piper）优先播放；否则回退浏览器 speechSynthesis
-          if (!audioBase64 || !playBase64Audio(audioBase64)) {
-            speakBrowser(text, msg.payload?.style || 'ok')
+          if (audioBase64) {
+            playBase64Audio(audioBase64, text, style)
+          } else {
+            console.log('[forkai] 无 audioBase64，走 speechSynthesis')
+            speakBrowser(text, style)
           }
         }
       }
