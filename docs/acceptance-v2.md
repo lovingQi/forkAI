@@ -75,7 +75,7 @@ cd services/core && .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 19000
 
 ## 6. 真车待办清单（人工项）
 
-1. **步骤21（真车 route 语义）**：`POST /api/control/schedulerthis` 的 HTTP 映射与五种节点（head/focklift/follow_back/get_pallet/charge）参数语义验证；校准 `FlowEngine._is_node_done` 完成判定（当前为 mock 语义 current_routes.status==finished）。
+1. **步骤21（真车 route 语义）**：`POST /api/control/scheduler`（源码已确认映射与 body 结构：name+content 嵌套）真车联调；五种节点（head/focklift/follow_back/get_pallet/charge）参数语义验证；`_is_node_done` 已按源码结论实现复合判定（routes→TEMP_DEFAULT + 任务物理量），真车复核。
 2. **步骤50（ASR 真机）**：RK3588 上 sherpa-onnx aarch64 推理 RTF/线程数复核；麦克风采集（cabin_listen.enabled）实测。
 3. **步骤51（LLM 真机）**：llama.cpp aarch64 编译（-DGGML_NATIVE=OFF）与 Qwen2-0.5B/1.5B 选型复核。
 4. **步骤58（试点部署）**：整车联调、站点名大小写口径确认（当前 norm 小写化）、音区实测唤醒率。

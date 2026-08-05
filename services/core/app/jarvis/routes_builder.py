@@ -25,7 +25,7 @@ def build_fork_route(pos: int, wait: int, tolerance: int) -> dict:
     """单节点货叉升降路线。"""
     return {
         "name": f"voice_focklift_{now_ms()}",
-        "a": {"cmd": "focklift", "pos": int(pos), "wait": int(wait), "tolerance": int(tolerance)},
+        "content": {"a": {"cmd": "focklift", "pos": int(pos), "wait": int(wait), "tolerance": int(tolerance)}},
     }
 
 
@@ -107,9 +107,16 @@ _BUILDERS = {
 
 
 def build_route(task_type: str, params: dict) -> dict:
-    """{"name": f"voice_{cmd}_{ts}", "a": {节点}}。缺 required 抛 ValueError。"""
+    """{"name": f"voice_{cmd}_{ts}", "content": {"a": {节点}}}。
+
+    节点表必须在 "content" 键下（JRoutes::Start(JArg) 只认 routes/key/id/content，
+    JRoutes.h:45 + GetRKICFromArg 反汇编键名）。缺 required 抛 ValueError。
+    """
     builder = _BUILDERS.get(task_type)
     if builder is None:
         raise NotImplementedError(f"route task_type 未实现: {task_type}")
     node = builder(params or {})
-    return {"name": f"voice_{task_type}_{now_ms()}", "a": node}
+    # mock_fail 透传（mock-jarvis 联调用：模拟任务失败路径；真车 jarvis 会忽略未知键）
+    if (params or {}).get("mock_fail"):
+        node["mock_fail"] = True
+    return {"name": f"voice_{task_type}_{now_ms()}", "content": {"a": node}}

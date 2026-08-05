@@ -128,10 +128,11 @@ async def main() -> int:
         r1 = await say(c, token, "速度多少")
         r2 = await say(c, token, "当前任务")
         r3 = await say(c, token, "为什么停")
+        # 新 mock（真车语义）：/api/state 无 speed 字段 → vel 兜底 m/s 话术（停车后 vel=0）；
+        # route 结束后 routes="TEMP_DEFAULT" → "当前没有任务"
         ok = (
-            r1["utterance"] == "当前速度百分之20"
-            and r2["utterance"].startswith("当前任务")
-            and "状态" in r2["utterance"]
+            r1["utterance"] == "当前速度0.0米每秒"
+            and r2["utterance"] == "当前没有任务"
             and r3["utterance"] == "当前没有告警，车辆正常"
         )
         check("5.问答三连", ok, f"{r1['utterance']!r} / {r2['utterance']!r} / {r3['utterance']!r}")

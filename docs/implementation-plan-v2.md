@@ -104,7 +104,7 @@ docs/requirements-v2.md, architecture-v2.md, api-v2.md, user-manual.md, acceptan
 - [x] 18. 扩充 rules.py：货叉意图 FORK_LIFT_UP/FORK_LIFT_DOWN/FORK_LIFT_TO
 - [x] 19. 编写 app/jarvis/routes_builder.py build_route()：focklift → {cmd:"focklift",pos,wait,tolerance}
 - [x] 20. 扩展 mock-jarvis：接收route并模拟叉高渐变；executor接入货叉意图（高度变化大时需确认）
-- [ ] 21. 真车验证①：货叉语音控制 + 观察 current_routes/status/mode 完成语义（**需现场真车，阻塞中**；待确认：schedulerthis 的 HTTP 映射路径与 body 结构、fork 段按实际车型调范围）
+- [ ] 21. 真车验证①：货叉语音控制 + 观察 current_routes/status/mode 完成语义（**需现场真车，阻塞中**；~~待确认：schedulerthis 的 HTTP 映射路径与 body 结构~~ 已源码确认：POST /api/control/scheduler，body={"name","content":{"a":{cmd...}}}，完成语义 routes→TEMP_DEFAULT，成功/失败需物理量复合判定——见 docs/architecture-v2.md §4；fork 段按实际车型调范围）
 - [ ] 22. Week 1出口检查：闸门A全部通过 + 真实ASR文本链路可用 + 货叉可控（mock环境已达成，待21真车复核）
 
 ### Week 2：混合NLU + 6任务 + 参数追问

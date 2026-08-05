@@ -6,7 +6,7 @@ run_utterance 遇到应中断复合指令链）。
 - STOP 直达并清唤醒武装
 - 运动/货叉/TASK_* 意图查现场锁；cabin 通道另查唤醒武装
 - MOTION 走 watchdog；IDLE/DOCK/GOTO 走 jarvis control；QUERY 走 get_state
-- 货叉/TASK_* 走 jarvis 内联路线（schedulerthis）
+- 货叉/TASK_* 走 jarvis 内联路线（/api/control/scheduler）
 - ParamDialogue 统一管：TASK_* 缺参追问 → 集齐汇总确认；货叉超阈值安全确认
 """
 import math
@@ -26,6 +26,18 @@ _ALARM_EXPLAIN = {
     "estop": "检测到急停触发，请检查急停按钮和安全区域",
     "lost": "定位丢失，建议重新定位或检查反光板与地图",
     "stuck": "车辆受困，前方路径被阻挡，请清除障碍",
+}
+
+# QUERY_MODE：真车 JMode 名 → 中文话术（依据各 JMode 构造函数名）
+_MODE_MAP = {
+    "Idle": "空闲",
+    "ModeFocklift": "货叉任务",
+    "ModeHead": "原地旋转",
+    "ModeFollowBack": "点到点任务",
+    "ModeAutoGetPallet": "栈板取货",
+    "ModeCharge": "充电",
+    "ModeGoto": "前往目标",
+    "ModeDrive": "行驶",
 }
 
 
@@ -454,10 +466,13 @@ class IntentExecutor:
                 "speak_style": "ok",
             }
         if name == "QUERY_MODE":
+            # 真车 mode 为 JMode 名（Idle/ModeFocklift...），status 为 "mode,子状态" 组合串
+            # （JWebService.cpp:137,154）——播 Mode 名的中文映射
+            mode_raw = state.get("mode") or "未知"
             return {
                 "ok": True,
                 "utterance_key": "query_mode",
-                "utterance_params": {"mode": state.get("status") or state.get("mode") or "未知"},
+                "utterance_params": {"mode": _MODE_MAP.get(mode_raw, mode_raw)},
                 "speak_kind": "query",
                 "speak_style": "ok",
             }
@@ -523,7 +538,8 @@ class IntentExecutor:
         if name == "QUERY_TASK":
             current = state.get("current_routes") or {}
             routes_name = current.get("routes") if isinstance(current, dict) else None
-            if routes_name:
+            # 真车无任务时 routes="TEMP_DEFAULT"（SetDefaultRICK，见 engine._judge_node 注释）
+            if routes_name and routes_name != "TEMP_DEFAULT":
                 return {
                     "ok": True,
                     "utterance_key": "query_task",

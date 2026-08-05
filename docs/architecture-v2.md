@@ -112,7 +112,7 @@ TASK_* 缺 required 参数 → 挂起会话(stage=collect) → 追问第一参
 
 - **唯一判定函数：`FlowEngine._is_node_done(state, route_name)`**（engine.py）。
   当前为 mock 语义：`state.current_routes.routes == route_name and status == "finished"`。
-- jarvis 真车 HTTP 映射（`POST /api/control/schedulerthis` 内联 route）**待真车验证（实施计划步骤21）**；备选 `/api/control/routes` 命名路线。真车对接时只改 `_is_node_done` 与 `JarvisClient.start_route` 两处。
+- jarvis 真车 HTTP 映射：`POST /api/control/scheduler` 内联 route（源码已确认：JWebHttpServer.cpp:62 注册 → JWebService::SchedulerThis，JWebService.cpp:786-793）；body 为 `{"name":..., "content":{"a":{cmd,...}}}`（节点表在 content 键下）。备选 `/api/control/routes` 命名路线。真车对接时只改 `_is_node_done` 与 `JarvisClient.start_route` 两处。
 
 ## 5. 模型清单
 

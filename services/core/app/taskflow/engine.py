@@ -13,11 +13,29 @@
 - 每次节点/流状态变化 broadcast "flow_event" {flowId,nodeId,nodeStatus,flowStatus}
 """
 import asyncio
+import math
 
 from ..jarvis.routes_builder import build_route
 from ..speak import render
 from ..tts.piper import synthesize
 from .schema import build_units, _group_map
+
+
+def _pose_th(state: dict) -> float | None:
+    """从 state.pose（"x,y,th" 字符串）取朝向角 th。"""
+    try:
+        return float(str(state.get("pose") or "0,0,0").split(",")[2])
+    except (ValueError, IndexError):
+        return None
+
+
+def _norm_angle(a: float) -> float:
+    """归一化到 (-pi, pi]。"""
+    while a > math.pi:
+        a -= 2 * math.pi
+    while a <= -math.pi:
+        a += 2 * math.pi
+    return a
 
 
 class FlowBusyError(Exception):
@@ -333,6 +351,15 @@ class FlowEngine:
         # 节点级 timeout_s 覆盖（测试/特殊节点），否则流 options / config
         timeout_s = float(params.get("timeout_s") or self._node_timeout_s)
         deadline = asyncio.get_running_loop().time() + timeout_s
+        # 启动宽限：jarvis Start 为异步入队，route 名出现在 state 前需要一小段时间
+        start_grace_deadline = asyncio.get_running_loop().time() + min(10.0, timeout_s)
+        # head 判定基准：下发时刻的朝向
+        ctx = {"seen_running": False, "start_th": None}
+        try:
+            st0 = await self._jarvis.get_state()
+            ctx["start_th"] = _pose_th(st0)
+        except Exception:
+            pass
         poll_failures = 0
         lost_announced = False
         last_lost_broadcast = 0.0
@@ -372,9 +399,14 @@ class FlowEngine:
             if isinstance(battery, (int, float)) and battery < self._low_battery_pct:
                 await self._low_battery_pause()
                 raise _Paused()
-            if self._is_node_done(state, route_name):
-                return True
-            if asyncio.get_running_loop().time() > deadline:
+            verdict = self._judge_node(state, node, route_name, ctx)
+            if verdict is not None:
+                return verdict
+            now = asyncio.get_running_loop().time()
+            if not ctx["seen_running"] and now > start_grace_deadline:
+                # 超过启动宽限仍未见 route 运行 → 判 failed（如下发被吞/参数非法）
+                return False
+            if now > deadline:
                 # 节点超时 → failed（停车防止裸奔）
                 try:
                     await self._jarvis.control("stop")
@@ -382,16 +414,59 @@ class FlowEngine:
                     pass
                 return False
 
-    def _is_node_done(self, state: dict, route_name: str) -> bool:
-        """节点完成判定（集中点）。
+    def _judge_node(self, state: dict, node: dict, route_name: str, ctx: dict):
+        """节点完成/失败判定（唯一集中点）。返回 True=succeeded / False=failed / None=进行中。
 
-        mock 语义：current_routes.routes == route_name 且 status == "finished"。
-        真车语义待步骤21校准——真车对接时只改这一个函数。
+        源码依据（jarvis-fork）：
+        - route 结束（成功/失败/中止相同表现）：LoopOnce 调 SetDefaultRICK →
+          current_routes.routes 变为 "TEMP_DEFAULT"、key="a"、mode 回默认 "Idle"
+          （libgrm.x86.a 反汇编：SetDefaultRICK 常量 TEMP_DEFAULT/a/{cmd:idle}；
+          JModeIdle 名 "Idle"，ext/grm_ext/src/task/JModeIdle.cpp）
+        - /api/state 不暴露成功/失败：JRouteInfo.state（SUCCESS=2/FAIL=3，JRouteInfo.h:35）
+          未被映射（JWebService.cpp:166-172，status 硬编码 "running"），
+          GetRouteChangeRecord 无 web 暴露 → 只能按任务类型物理量复合判定
+        - 瞬时完成的 route（如叉高本已在目标）可能在两次轮询间就结束，
+          从未被观察到 running —— 此时只要物理量已满足即判成功
         """
         cr = state.get("current_routes") or {}
-        if not isinstance(cr, dict):
-            return False
-        return cr.get("routes") == route_name and cr.get("status") == "finished"
+        cur = cr.get("routes") if isinstance(cr, dict) else None
+        if cur == route_name:
+            ctx["seen_running"] = True
+            return None
+        if ctx.get("seen_running"):
+            # route 名消失（→ TEMP_DEFAULT 或被顶替）= 任务已结束，按类型判成败
+            v = self._physical_verdict(node, state, ctx)
+            return True if v is None else v
+        # 从未观察到运行：异步入队中，或瞬时完成
+        if cur in ("", "TEMP_DEFAULT"):
+            v = self._physical_verdict(node, state, ctx)
+            if v is True:
+                return True  # 瞬时完成（物理量已满足）
+            return None  # 继续等待（启动宽限/节点超时由调用方兜底）
+        return False  # 被其他 route 顶替
+
+    def _physical_verdict(self, node: dict, state: dict, ctx: dict):
+        """按任务类型的物理量判定。True=达标 / False=未达标 / None=无法判定。"""
+        ntype = node["type"]
+        params = node.get("params") or {}
+        if ntype == "focklift":
+            target = int(params.get("pos", 0))
+            tol = max(int(params.get("tolerance", 20)), 10)
+            h = (state.get("fork_info") or {}).get("fork_height")
+            if not isinstance(h, (int, float)):
+                return False
+            return abs(h - target) <= tol
+        if ntype == "charge":
+            return state.get("charing") is True
+        if ntype == "head":
+            th_now = _pose_th(state)
+            if ctx.get("start_th") is None or th_now is None:
+                return None
+            want = math.radians(float(params.get("angle", 0)))
+            delta = _norm_angle(th_now - ctx["start_th"])
+            return abs(delta - want) <= 0.15  # ≈8.6° 容差
+        # follow_back / get_pallet：state 无物理量可判（目标点是地图名、识别结果无字段）
+        return None
 
     async def _exec_drive(self, params: dict) -> bool:
         """流程内定时点动：直接 control('drive') → 定时 → control('stop')，不走 watchdog。

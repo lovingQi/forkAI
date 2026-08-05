@@ -49,13 +49,16 @@ class JarvisClient:
             return {}
 
     async def start_route(self, route: dict):
-        """下发内联路线（UmWebSchedulerThis）。
+        """下发内联路线（JWebService::SchedulerThis）。
 
-        POST /api/control/schedulerthis，body 为 route JSON 展开（name + 节点键）。
-        注意：HTTP 映射待真车验证（实施计划步骤21）；备选方案为
-        /api/control/routes 命名路线方式（UmWebRoutes，需 routes.json 预置）。
+        POST /api/control/scheduler（src/service/JWebHttpServer.cpp:62 注册，
+        :192 分发；JWebService.cpp:786-793：取 body.name → json["routes"]=name
+        → mRoutes->Start(json)）。body 结构：{"name":..., "content":{"a":{cmd,...}}}
+        （JRoutes::Start(JArg) 读 routes/key/id/content，JRoutes.h:45 注释；
+        GetRKICFromArg 键名经 libgrm 反汇编确认）。
+        备选：/api/control/routes 命名路线（body: routes/key/id）。
         """
-        return await self.control("schedulerthis", route)
+        return await self.control("scheduler", route)
 
     async def close(self) -> None:
         await self._client.aclose()

@@ -134,12 +134,15 @@ async def main() -> int:
         # ---- 4. 模糊匹配 + 不存在 ----
         r = await say(c, token, "执行取货演示")
         ok = r.get("utterance", "").startswith("确认执行任务流取货演示流程")
+        dbg1 = f"fuzzy={r.get('utterance')!r}"
         r = await say(c, token, "确认")
+        dbg1 += f" confirm={r.get('utterance')!r}/{r.get('succeed')}"
         st = await wait_flow(c, h, "succeeded", timeout=40)
         ok = ok and st["flowStatus"] == "succeeded"
+        dbg1 += f" flow={st['flowStatus']}"
         r = await say(c, token, "执行不存在的流程")
         ok = ok and r.get("succeed") is False and "未找到任务流" in r.get("utterance", "")
-        check("4.模糊匹配+不存在", ok, f"模糊确认succeeded；不存在→{r.get('utterance')!r}")
+        check("4.模糊匹配+不存在", ok, f"{dbg1}；不存在→{r.get('utterance')!r}")
 
         # ---- 5. 流控锁定兼容 ----
         await c.post(f"{BASE}/api/flows/{names['回充流程']}/start", headers=h)
