@@ -18,7 +18,8 @@
     </header>
 
     <main class="app-main">
-      <Dashboard v-if="session.paired" />
+      <FlowEditor v-if="session.paired && view === 'flow'" />
+      <Dashboard v-else-if="session.paired" />
       <div v-else class="gate">
         <el-card class="gate-card">
           <h2>设备配对</h2>
@@ -54,6 +55,7 @@
 import { computed, onMounted, onBeforeUnmount, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import Dashboard from '@/views/Dashboard.vue'
+import FlowEditor from '@/views/FlowEditor.vue'
 import { useRobotStore } from '@/stores/robot'
 import { useSessionStore } from '@/stores/session'
 import { voiceStop } from '@/api/http'
@@ -64,6 +66,11 @@ const inputCode = ref('')
 const siteVisible = ref(false)
 const siteInput = ref('')
 const now = ref(Date.now())
+// 轻量 hash 路由（项目未启用 vue-router）：#/flow → 任务流编辑器
+const view = ref(window.location.hash === '#/flow' ? 'flow' : 'dashboard')
+window.addEventListener('hashchange', () => {
+  view.value = window.location.hash === '#/flow' ? 'flow' : 'dashboard'
+})
 let tick: number | null = null
 
 const remainMin = computed(() => {

@@ -31,6 +31,62 @@ const state = {
   speed: 20
 }
 
+// ---- 货叉路线模拟（schedulerthis / routes 内联 route 节点） ----
+let forkTimer = null
+let currentRoutes = {}
+
+/** 模拟叉高渐变：每 200ms 向目标 pos 步进 10mm，到位停。 */
+function startForkSim(name, node) {
+  const target = Number(node.pos || 0)
+  if (forkTimer) clearInterval(forkTimer)
+  currentRoutes = { routes: name, key: 'a', status: 'running' }
+  console.log(`【mock车】货叉路线启动 name=${name} 目标=${target}mm wait=${node.wait} tolerance=${node.tolerance}`)
+  forkTimer = setInterval(() => {
+    const diff = target - state.fork_height
+    if (Math.abs(diff) <= 10) {
+      state.fork_height = target
+      clearInterval(forkTimer)
+      forkTimer = null
+      currentRoutes = { routes: name, key: 'a', status: 'finished' }
+      console.log(`【mock车】货叉到位 ${target}mm`)
+    } else {
+      state.fork_height += Math.sign(diff) * 10
+      console.log(`【mock车】叉高 ${state.fork_height}mm → ${target}mm`)
+    }
+  }, 200)
+}
+
+/** head/follow_back/get_pallet/charge 节点模拟（步骤31）。 */
+function startTaskSim(name, node) {
+  const cmd = node.cmd
+  currentRoutes = { routes: name, key: 'a', status: 'running' }
+  if (cmd === 'head') {
+    state.status = '转动中'
+    console.log(`【mock车】head 原地旋转 ${node.angle}度 speed=${node.speed}`)
+    setTimeout(() => {
+      state.pose[2] += (Number(node.angle || 0) * Math.PI) / 180
+      currentRoutes = { routes: name, key: 'a', status: 'finished' }
+      state.status = '空闲'
+      console.log(`【mock车】head 完成 pose[2]=${state.pose[2].toFixed(3)}rad`)
+    }, 1000)
+    return
+  }
+  if (cmd === 'follow_back') state.status = `前往${node.target_name}`
+  if (cmd === 'get_pallet') state.status = '栈板识别取货中'
+  if (cmd === 'charge') state.status = '前往充电桩'
+  console.log(`【mock车】${cmd} 模拟开始 name=${name} payload=${JSON.stringify(node)}`)
+  setTimeout(() => {
+    currentRoutes = { routes: name, key: 'a', status: 'finished' }
+    if (cmd === 'follow_back') state.status = node.get_pallet ? '取货完成' : '空闲'
+    if (cmd === 'get_pallet') state.status = '栈板识别取货完成'
+    if (cmd === 'charge') {
+      state.charing = true
+      state.status = '充电中'
+    }
+    console.log(`【mock车】${cmd} 模拟完成 status=${state.status}`)
+  }, 2000)
+}
+
 function lowPayload() {
   return {
     type: 'low',
@@ -47,7 +103,8 @@ function lowPayload() {
     safe: state.safe,
     motor: state.motor,
     alarm: state.alarm,
-    current_routes: {},
+    speed: state.speed,
+    current_routes: currentRoutes,
     fork_info: { fork_height: state.fork_height },
     input: [],
     output: [],
@@ -94,11 +151,13 @@ function handleControl(action, payload) {
       state.mode = 'idle'
       state.status = '空闲'
       state.vel = [0, 0, 0]
+      state.charing = false
       break
     case 'idle':
       state.mode = 'idle'
       state.status = '待机'
       state.vel = [0, 0, 0]
+      state.charing = false
       break
     case 'dock':
       state.mode = 'dock'
@@ -109,6 +168,23 @@ function handleControl(action, payload) {
       state.mode = 'goto'
       state.status = `前往${p.goal || p.target || '目标点'}`
       break
+    case 'schedulerthis':
+    case 'routes': {
+      // 内联路线：payload 展开为 {name, a: {cmd, ...}}；按 cmd 分发模拟
+      const nodes = Object.values(p).filter((v) => v && typeof v === 'object' && v.cmd)
+      const forkNode = nodes.find((n) => n.cmd === 'focklift')
+      const taskNode = nodes.find((n) =>
+        ['head', 'follow_back', 'get_pallet', 'charge'].includes(n.cmd)
+      )
+      if (forkNode) {
+        startForkSim(String(p.name || action), forkNode)
+      } else if (taskNode) {
+        startTaskSim(String(p.name || action), taskNode)
+      } else {
+        console.log(`【mock车】未模拟的route节点 payload=${JSON.stringify(p)}`)
+      }
+      break
+    }
     default:
       console.log(`【mock车】未识别 action=${action}，仍返回成功`)
   }
@@ -138,6 +214,31 @@ const server = http.createServer((req, res) => {
     return sendJson(res, 200, { name: state.map_name, data: null })
   }
   if (req.method === 'GET' && path === '/api/params') return sendJson(res, 200, { params: {} })
+
+  // 调试端点（仅供联调测试）：直接改内存状态，模拟低电量/告警/充电等场景
+  if (req.method === 'POST' && path === '/api/debug/state') {
+    let body = ''
+    req.on('data', (c) => (body += c))
+    req.on('end', () => {
+      let p = {}
+      try {
+        p = body ? JSON.parse(body) : {}
+      } catch {
+        /* ignore */
+      }
+      if (p.battery !== undefined) state.battery = Number(p.battery)
+      if (p.alarm !== undefined) state.alarm = String(p.alarm)
+      if (p.charing !== undefined) state.charing = !!p.charing
+      console.log(`【mock车】debug/state battery=${state.battery} alarm=${state.alarm} charing=${state.charing}`)
+      sendJson(res, 200, {
+        succeed: true,
+        battery: state.battery,
+        alarm: state.alarm,
+        charing: state.charing
+      })
+    })
+    return
+  }
 
   if (req.method === 'POST' && path.startsWith('/api/control/')) {
     const action = decodeURIComponent(path.slice('/api/control/'.length))

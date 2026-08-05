@@ -1,0 +1,15 @@
+[Unit]
+Description=forkAI llm sidecar (llama.cpp llama-server, Qwen2)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/usr/local/forkai/services/llm-sidecar
+Environment=LLM_PORT=19002
+ExecStart=/usr/local/forkai/services/llm-sidecar/run-llama-server.sh
+Restart=always
+RestartSec=3
+MemoryMax=2G
+
+[Install]
+WantedBy=multi-user.target

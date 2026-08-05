@@ -1,17 +1,18 @@
-# forkAI 车载部署说明
+# forkAI 车载部署说明（V2）
 
-把 forkAI（语音网关 + 离线语音 + 监控前端）部署到车载工控机，对接真车 jarvis。
+把 forkAI 部署到车载工控机，对接真车 jarvis。**V2 组件变化**：统一后端 `forkai-core`（FastAPI，含 ASR/NLU/TTS/任务流）+ `forkai-llm`（llama.cpp 侧车），替代 V1 的 `forkai-gateway` + `forkai-speech`（install.sh 会自动停用并删除旧单元）。
 
-- 支持架构：**x86_64 / aarch64 / armv7l**（脚本自动判断）
+- 支持架构：**x86_64 / aarch64**（armv7l 不支持：sherpa-onnx 无 32 位 wheel）
+- 目标系统：Ubuntu 20.04（glibc 2.31：llama.cpp 一律源码编译，不用预编译二进制）
 - 安装路径：`/usr/local/forkai`
-- 组件：Node 20（项目内）+ piper 离线中文 TTS + 前端构建产物 + systemd 自启
-- 真车 jarvis 由车端自身提供（HTTP `/api/*` + WS `/ws/high|low`），gateway 只做代理，**不需要 mock-jarvis**
+- 端口：`19000` forkai-core（外部访问入口）；`19002` forkai-llm（仅本机回环）
+- 真车 jarvis 由车端自身提供（HTTP `/api/*` + WS `/ws/high|low`），core 只做代理，**不需要 mock-jarvis**
 
 ---
 
 ## 一、一键部署（推荐）
 
-把整个仓库拷到工控机（不含 `node_modules`、`.node20`、`services/speech/piper`，脚本会重装），然后：
+把整个仓库拷到工控机，然后：
 
 ```bash
 cd /path/to/forkAI
@@ -24,89 +25,68 @@ sudo bash deploy/install.sh
 sudo JARVIS_BASE_URL=http://127.0.0.1:10000 bash deploy/install.sh
 ```
 
-脚本会自动完成：架构判断 → 装 Node20 → `npm install` → 构建前端 → 装 piper+中文模型 → 写 gateway 配置 → 装 systemd 并 `enable --now`。
+脚本自动完成：架构判断 → 装 Node20（项目内）→ 装 Miniconda + 建 venv + pip 依赖 → npm install + 构建前端 → piper+中文模型 → ASR 模型+热词 → Qwen2 GGUF + 源码编译 llama.cpp（**RK3588 约 15-25 分钟，请耐心等待**）→ 写 core.config.yaml → 装 systemd 双单元并 `enable --now`。
 
-可用环境变量覆盖默认值：
+可用环境变量覆盖：
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
 | `INSTALL_DIR` | `/usr/local/forkai` | 安装目录 |
 | `JARVIS_BASE_URL` | `http://127.0.0.1:8080` | 真车 jarvis web 地址 |
-| `FORKAI_PORT` | `19000` | gateway 端口（外部访问入口） |
-| `SPEECH_PORT` | `19001` | speech 端口（仅本机） |
+| `FORKAI_PORT` | `19000` | core 端口（外部访问入口） |
+| `LLM_PORT` | `19002` | llm 侧车端口（仅本机） |
 | `VEHICLE_ID` | `fork-01` | 车辆编号 |
-| `NODE_VER` | `v20.18.1` | Node 版本 |
-| `PIPER_MODEL` | `zh_CN-huayan-medium` | piper 中文模型 |
+| `NODE_VER` | `v20.18.1` | Node 版本（前端构建用） |
+| `PIP_INDEX` | 阿里云镜像 | pip 源，可改 |
+| `LLAMA_VER` | `b10256` | llama.cpp 版本 |
 
 ---
 
-## 二、手动分步部署（脚本的人工等价）
+## 二、无网离线部署
 
-```bash
-# 1. 架构（x86_64 / aarch64 / armv7l）
-uname -m
+在车上有网前，先把离线包放进 `$INSTALL_DIR/.offline-assets/`（脚本检测到该目录即全部用本地拷贝，跳过下载）：
 
-# 2. 装 Node 20 到项目内（按架构选 x64 / arm64 / armv7l）
-cd /usr/local/forkai
-curl -fSL -o node.tar.xz https://nodejs.org/dist/v20.18.1/node-v20.18.1-linux-arm64.tar.xz
-mkdir -p .node20 && tar -xJf node.tar.xz -C .node20 --strip-components=1 && rm node.tar.xz
-export PATH="$PWD/.node20/bin:$PATH"
+| 文件 | 来源 |
+|------|------|
+| `node-v20.18.1-linux-arm64.tar.xz` | nodejs.org/dist |
+| `Miniconda3-latest-Linux-aarch64.sh` | repo.anaconda.com / 清华镜像 |
+| `piper_linux_aarch64.tar.gz` | github.com/rhasspy/piper releases |
+| `zh_CN-huayan-medium.onnx` / `.onnx.json` | huggingface csukuangfj（hf-mirror 备选） |
+| `sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23.tar.bz2` | github k2-fsa releases（hf-mirror 备选） |
+| `qwen2-0_5b-instruct-q4_k_m.gguf` | ModelScope（推荐）/ hf-mirror |
+| `llama.cpp-b10256.tar.gz` | github ggml-org/llama.cpp 源码包 |
 
-# 3. 装依赖 + 构建前端
-npm install --legacy-peer-deps --no-audit --no-fund
-npm run build -w @forkai/web
-
-# 4. 装 piper（按架构选 x86_64 / aarch64 / armv7l）+ 中文模型
-cd services/speech/piper
-curl -fSL -o piper.tar.gz https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_aarch64.tar.gz
-tar -xzf piper.tar.gz && rm piper.tar.gz
-curl -fSL -o zh_CN-huayan-medium.onnx      https://huggingface.co/csukuangfj/vits-piper-zh_CN-huayan-medium/resolve/main/zh_CN-huayan-medium.onnx
-curl -fSL -o zh_CN-huayan-medium.onnx.json https://huggingface.co/csukuangfj/vits-piper-zh_CN-huayan-medium/resolve/main/zh_CN-huayan-medium.onnx.json
-
-# 5. 配 gateway 指向真车 jarvis
-#    编辑 services/voice-gateway/config/gateway.config.yaml 的 jarvis.baseUrl
-
-# 6. 装 systemd（deploy/ 下的两个 .service 已按 /usr/local/forkai + 项目内 node 写好）
-sudo cp deploy/forkai-speech.service deploy/forkai-gateway.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now forkai-speech forkai-gateway
-```
+注意：`npm install` 与 `apt-get install build-essential cmake ninja-build git` 仍需有网；完全无网时请在有网机器上预装 node_modules（拷入 `$INSTALL_DIR/node_modules` 即可跳过）并预装编译工具链 deb 包。
 
 ---
 
 ## 三、配置真车 jarvis 端口
 
-真车 jarvis 的 web 端口以车端实际配置为准。改两处之一：
+- 改配置：`services/core/config/core.config.yaml` 的 `jarvis.baseUrl`
+- 或改 systemd：`/etc/systemd/system/forkai-core.service` 的 `Environment=JARVIS_BASE_URL=...`
 
-- 改配置：`services/voice-gateway/config/gateway.config.yaml` 的 `jarvis.baseUrl`
-- 或改 systemd：`/etc/systemd/system/forkai-gateway.service` 的 `Environment=JARVIS_BASE_URL=...`
-
-改完重启：
-
-```bash
-sudo systemctl restart forkai-gateway
-```
-
-> 环境变量 `JARVIS_BASE_URL` 优先级高于 config 文件（见 `config.ts`）。
+改完重启：`sudo systemctl restart forkai-core`（环境变量优先级高于配置文件，见 `app/config.py`）。
 
 ---
 
-## 四、验证
+## 四、验证清单
 
 ```bash
-# gateway 健康
-curl http://127.0.0.1:19000/api/health        # {"ok":true,...}
+# core 健康
+curl http://127.0.0.1:19000/api/health      # {"ok":true,"vehicleId":"fork-01",...}
 
-# speech 用了 piper
-curl http://127.0.0.1:19001/health            # {"ok":true,"asr":"mock","tts":"piper"}
-curl -X POST http://127.0.0.1:19001/tts/speak -H 'Content-Type: application/json' \
-     -d '{"text":"好的，前进","style":"ok"}'   # 返回 audioBase64 非空、engine=piper
+# llm 侧车
+curl http://127.0.0.1:19002/health          # {"status":"ok"}
 
-# gateway 能否连到真车 jarvis（先配对拿 token，略；或直接看 jarvis）
-curl http://127.0.0.1:8080/api/state           # 换成真车 jarvis 地址
+# ASR/TTS 端到端自检（piper 合成 → sherpa 识别，应输出 PASS）
+cd /usr/local/forkai/services/core && .venv/bin/python scripts/asr_offline_test.py
+
+# 服务状态/日志
+systemctl status forkai-core forkai-llm
+journalctl -u forkai-core -f
 ```
 
-手机/平板连厂 WiFi，浏览器访问 `http://<车IP>:19000/` → 配对 → 现场解锁 → 输入/语音下发指令。
+手机/平板连厂 WiFi，浏览器访问 `http://<车IP>:19000/` → 配对 → 现场解锁 → 语音下发指令。
 
 生成车身配对二维码：
 
@@ -119,16 +99,18 @@ cd /usr/local/forkai
 
 ## 五、常见问题（FAQ）
 
-- **服务起不来 / 找不到 node**：确认 systemd 单元里 `PATH` 含 `/usr/local/forkai/.node20/bin`，且该目录 `node -v` 正常。看日志 `journalctl -u forkai-gateway -f`。
-- **TTS 是英文/机械音**：speech 没加载到 piper（回退 mock 了）。检查 `services/speech/piper/piper/piper` 可执行、模型 onnx 存在、架构与工控机匹配。`curl http://127.0.0.1:19001/health` 应显示 `tts:piper`。
-- **gateway 报 502 / 连不上 jarvis**：`jarvis.baseUrl` 端口不对，或真车 jarvis web 服务没起。用 `curl <jarvis>/api/state` 直连测。
-- **浏览器不出声**：先点一下页面（解除 autoplay 限制）；确认前端控制台 `[forkai] 走 piper 音频播放`。
-- **车端无网**：需在有网机器先跑 `install.sh` 下载好 Node/piper/依赖，再把整个 `/usr/local/forkai`（含 `.node20`、`services/speech/piper`、`node_modules`）打包拷到车上，只补 systemd 步骤。
+- **llama.cpp 编译失败**：先确认 `build-essential cmake ninja-build git` 装齐；gcc 需 ≥9（C++17）。内存不足时把 `-j$(nproc)` 改成 `-j2`。日志在终端直接输出；重跑 install.sh 会复用已下载源码包。
+- **llama-server 启动失败**：`journalctl -u forkai-llm -f` 看模型路径；GGUF 必须完整（397,805,248 字节），下载中断的文件会报 tensor out of bounds——删掉重下。
+- **模型下载慢/失败**：LLM 默认走 ModelScope，备选 hf-mirror（改 install.sh 的 fetch 第二参数已内置）；pip 用阿里云镜像（`PIP_INDEX` 可换）。
+- **core 起不来**：看 `journalctl -u forkai-core`；确认 venv 存在（`services/core/.venv/bin/python --version` ≥3.10）。
+- **TTS 无声/英文音**：piper 未就绪时自动回退 mock（前端浏览器朗读）。检查 `services/core/models/piper/piper/piper` 可执行、模型文件齐全。
+- **内存占用预期**：core（含 sherpa ASR + piper）≈1GB；llama-server（Qwen2-0.5B Q4_K_M，ctx 2048）≈0.5GB；合计约 1.5GB，8GB 整机余量充足。systemd 已加 MemoryMax 保护（core 4G / llm 2G）。
+- **V1 旧服务残留**：install.sh 会自动 stop/disable 并删除 forkai-gateway、forkai-speech 单元；旧目录 services/voice-gateway、services/speech 保留在仓库中但不再启动。
 
 ---
 
 ## 安全
 
-- 厂网内须配对码才能控制；点动须现场码。
+- 厂网内须配对码才能控制；点动须现场码；急停触发自动退出现场模式。
 - 语音「停」≠ 实体急停，急停仍以车身硬件为准。
-- 勿将 gateway（19000）暴露到公网。
+- 勿将 core（19000）暴露到公网；llm（19002）只监听回环。

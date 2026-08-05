@@ -1,0 +1,65 @@
+jarvis:
+  baseUrl: http://127.0.0.1:8080
+server:
+  host: 0.0.0.0
+  port: 19000
+vehicleId: fork-01
+watchdogMs: 2000
+siteSessionTtlMs: 2700000
+pairCodeTtlMs: 300000
+pairTokenTtlMs: 86400000
+wakeArmMs: 30000
+speed:
+  default: 20
+  max: 40
+  step: 5
+wakeWords:
+  - 玖物玖物
+  - 玖物，玖物
+  - 九物九物
+speak:
+  cabinMove: vehicle
+  pttMove: both
+  query: device
+  beep: true
+# TTS 内置：直接调 piper CLI（路径相对 services/core 目录）
+piper:
+  bin: models/piper/piper/piper
+  libDir: models/piper/piper
+  model: models/piper/zh_CN-huayan-medium.onnx
+  config: models/piper/zh_CN-huayan-medium.onnx.json
+# ASR：sherpa-onnx 流式中文识别（路径相对 services/core 目录）
+asr:
+  model_dir: models/asr/sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23
+  num_threads: 1
+  sample_rate: 16000
+  enable_endpoint: true
+  rule1_min_trailing_silence: 2.4
+  rule2_min_trailing_silence: 1.2
+  rule3_min_utterance_length: 20.0
+# 车载常听（默认关闭；enabled 时需 sounddevice + ALSA 麦）
+cabin_listen:
+  enabled: false
+  device: null
+# 货叉升降（车型相关，真车按车型调整；P1500/P2000: 75~210mm）
+fork:
+  min_pos: 75
+  max_pos: 210
+  step: 50
+  wait: 20
+  tolerance: 20
+  confirm_threshold: 100
+# LLM 混合 NLU（llama.cpp llama-server 侧车，OpenAI 兼容接口）
+llm:
+  base_url: http://127.0.0.1:19002
+  timeout_s: 3
+  enabled: true
+# 任务流引擎
+taskflow:
+  node_timeout_s: 120
+  low_battery_pct: 20
+  resume_battery_pct: 80
+  poll_ms: 500
+# 安全：急停上升沿强制退出现场锁
+safety:
+  estop_exit_site: true

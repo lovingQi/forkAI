@@ -27,13 +27,20 @@ function speakBrowser(text: string, style: string) {
 }
 
 /** 播放 base64 音频（piper wav）。autoplay 被拦截或出错时回退浏览器 TTS。 */
+let currentAudio: HTMLAudioElement | null = null
+
 function playBase64Audio(audioBase64: string, text: string, style: string) {
   try {
     const audio = new Audio(`data:audio/wav;base64,${audioBase64}`)
+    currentAudio = audio
+    audio.onended = () => {
+      if (currentAudio === audio) currentAudio = null
+    }
     const p = audio.play()
     if (p && typeof p.catch === 'function') {
       p.then(() => console.log('[forkai] 走 piper 音频播放'))
         .catch((e) => {
+          if (currentAudio === audio) currentAudio = null
           console.warn('[forkai] piper 音频被拦截，回退 speechSynthesis:', e?.name || e)
           speakBrowser(text, style)
         })
@@ -44,6 +51,15 @@ function playBase64Audio(audioBase64: string, text: string, style: string) {
     console.warn('[forkai] piper 音频构造失败，回退 speechSynthesis:', e)
     speakBrowser(text, style)
   }
+}
+
+/** TTS 打断：停止当前 piper 音频与浏览器朗读（收到 asr_final 时调用）。 */
+function stopCurrentAudio() {
+  if (currentAudio) {
+    currentAudio.pause()
+    currentAudio = null
+  }
+  if ('speechSynthesis' in window) window.speechSynthesis.cancel()
 }
 
 let eventWs: EventWs | null = null
@@ -63,6 +79,9 @@ export const useSessionStore = defineStore('session', {
     lastIntent: '',
     listening: false,
     wakeArmed: false,
+    flowStatus: 'idle',
+    flowId: '' as string,
+    flowNodeStates: {} as Record<string, string>,
     logs: [] as string[]
   }),
 
@@ -111,11 +130,24 @@ export const useSessionStore = defineStore('session', {
       if (msg.type === 'watchdog_stop') {
         this.pushLog('看门狗停车')
       }
+      if (msg.type === 'asr_final') {
+        // TTS 打断：识别出 final 指令时停播当前音频
+        stopCurrentAudio()
+        this.pushLog(`识别: ${msg.payload?.text || ''}`)
+      }
       if (msg.type === 'wake_armed') {
         this.wakeArmed = true
         setTimeout(() => {
           this.wakeArmed = false
         }, 12000)
+      }
+      if (msg.type === 'flow_event') {
+        const p = msg.payload || {}
+        if (p.flowStatus) this.flowStatus = p.flowStatus
+        if (p.flowId) this.flowId = p.flowId
+        if (p.nodeId && p.nodeStatus) {
+          this.flowNodeStates = { ...this.flowNodeStates, [p.nodeId]: p.nodeStatus }
+        }
       }
     },
 

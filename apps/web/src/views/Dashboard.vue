@@ -14,6 +14,11 @@
           <template #header>语音控制</template>
           <VoiceBar />
         </el-card>
+        <el-card shadow="never" class="flow-entry-card">
+          <el-button type="primary" plain style="width: 100%" @click="goFlow">
+            任务流编辑器
+          </el-button>
+        </el-card>
       </el-col>
     </el-row>
   </div>
@@ -23,6 +28,10 @@
 import CanvasView from '@/components/CanvasView.vue'
 import StatusPanel from '@/components/StatusPanel.vue'
 import VoiceBar from '@/components/VoiceBar.vue'
+
+function goFlow() {
+  window.location.hash = '#/flow'
+}
 </script>
 
 <style scoped>

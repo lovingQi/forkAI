@@ -9,3 +9,25 @@ services/*/dist
 packages/*/dist
 .node20/
 services/speech/piper/
+
+# forkAI V2: python 环境与运行时缓存
+__pycache__/
+*.pyc
+.pytest_cache/
+services/core/.venv/
+
+# forkAI V2: 模型与二进制（部署时由 install.sh 下载/编译，不入库）
+services/core/models/piper/
+services/core/models/llm/
+services/core/models/asr/model.tar.bz2
+services/core/models/asr/sherpa-onnx-*/
+# 注意：services/core/models/asr/hotwords.txt 必须入库（install.sh 从源码树拷贝它）
+
+# forkAI V2: 运行时数据（任务流实例与引擎快照，车端产生）
+services/core/data/flows/*.json
+services/core/data/flows/.engine_state.json
+
+# forkAI V2: llama.cpp 源码树与编译产物
+services/llm-sidecar/bin/
+services/llm-sidecar/src/
+services/llm-sidecar/llama-src.tar.gz
