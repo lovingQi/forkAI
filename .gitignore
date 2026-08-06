@@ -31,3 +31,8 @@ services/core/data/flows/.engine_state.json
 services/llm-sidecar/bin/
 services/llm-sidecar/src/
 services/llm-sidecar/llama-src.tar.gz
+
+# E2E 测试产物
+tests/e2e/node_modules/
+tests/e2e/test-results/
+tests/e2e/artifacts/

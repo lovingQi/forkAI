@@ -24,21 +24,36 @@ TASK_INTENTS = ["TASK_HEAD", "TASK_FOLLOW_BACK", "TASK_GET_PALLET", "TASK_CHARGE
 
 # ASR 同音误识别纠偏表：piper/真人说出的部分指令词被 14M 小模型稳定识别为同音词
 # （如 电量→掂量、前进→前经），对固定指令词表在 parse_intent 前做确定性纠偏。
+# 注意：长词优先（replace 顺序按 key 长度降序排列，避免短词先替换破坏长词）。
 ASR_CORRECTIONS = {
-    "掂量": "电量",
-    "前经": "前进",
+    # 货叉
+    "身体或差": "升起货叉", "身体货叉": "升起货叉", "方侠或差": "放下货叉",
+    "方侠货叉": "放下货叉", "灯下锅菜": "放下货叉", "或差": "货叉", "锅菜": "货叉",
+    # 数字单位
+    "号米": "毫米", "万毫米": "毫米", "一百五十": "150", "九十": "90", "就十": "90", "就时": "90",
+    # 点动
+    "掂量": "电量", "前经": "前进", "作战": "左转", "高晨": "后退", "夫妻": "后退",
+    # 任务
+    "同类点": "A点", "低点": "B点", "地点": "B点", "站板": "栈板", "站吧": "栈板",
+    # 唤醒（玖物 同音字组已在 match_wake_word 等价组覆盖，此处兜底）
+    "九屋": "玖物", "九乌": "玖物", "九五": "玖物",
+    # 任务流
+    "也是流程": "演示流程", "单凭任务": "暂停任务", "身体愿意": "暂停任务", "三庭任务": "暂停任务",
 }
 
 
 def correct_asr(text: str) -> str:
-    for wrong, right in ASR_CORRECTIONS.items():
-        text = text.replace(wrong, right)
+    # 长词优先替换，避免短词先命中破坏长词（如"或差"先于"身体或差"）
+    for wrong in sorted(ASR_CORRECTIONS, key=len, reverse=True):
+        text = text.replace(wrong, ASR_CORRECTIONS[wrong])
     return text
 
 
 def norm(text: str) -> str:
     text = re.sub(r"\s+", "", text)
-    text = re.sub(r"[，,。.!！？?]", "", text)
+    # 删标点，但保留小数点（前后都是数字的 . 如 1.5米），否则 1.5→15 出错
+    text = re.sub(r"(?<!\d)\.|\.(?!\d)", "", text)  # 删非小数点
+    text = re.sub(r"[，,。!！？?]", "", text)
     return text.lower()
 
 

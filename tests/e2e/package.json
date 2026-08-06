@@ -1,0 +1,22 @@
+{
+  "name": "forkai-e2e",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "description": "forkAI Playwright E2E（浏览器端验收）",
+  "scripts": {
+    "build:web": "cd ../.. && npm run build -w @forkai/web",
+    "test": "npx playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1"
+  },
+  "main": "index.js",
+  "dependencies": {
+    "playwright": "^1.62.1",
+    "playwright-core": "^1.62.1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

@@ -72,6 +72,7 @@ class FlowEngine:
         self._current_node_id = None
         self._task: asyncio.Task | None = None
         self._pause_flag = False
+        self._pause_gen = 0  # pause 代数：每次 pause 递增，用于检测"执行期间被打断"
         self._resume_event = asyncio.Event()
         self._shutting_down = False
 
@@ -198,6 +199,7 @@ class FlowEngine:
         if self._status != "running":
             return False
         self._pause_flag = True
+        self._pause_gen += 1  # 标记一次打断，_run_node 据此重发
         # 立即停车（步骤38）
         try:
             await self._jarvis.control("stop")
@@ -214,6 +216,8 @@ class FlowEngine:
             return False
         self._pause_flag = False
         self._status = "running"
+        # 先清再 set：防止 _wait_paused 在 resume 后迟到执行 clear() 吞掉信号
+        self._resume_event.clear()
         self._resume_event.set()
         self._emit()
         return True
@@ -310,23 +314,32 @@ class FlowEngine:
                 await self._wait_paused()
             self._current_node_id = nid
             self._set_node_state(nid, "running")
+            # 记录本次执行的起始 pause 代数：执行期间若发生过 pause（代数变化），
+            # 即使 _execute_node_once 正常返回也必须重发（车端 route 已被 stop 中止）
+            pause_gen = self._pause_gen
             try:
                 outcome = await self._execute_node_once(node)
             except _Paused:
                 continue  # resume 后重发
             except _Redispatch:
                 continue  # jarvis 断连恢复后重发
+            if self._pause_gen != pause_gen:
+                continue  # 执行期间被 pause 打断过，重发
             self._set_node_state(nid, "succeeded" if outcome else "failed")
             return "succeeded" if outcome else "failed"
 
     async def _wait_paused(self) -> None:
         """挂起等待 resume / cancel（cancel 经 task.cancel 注入 CancelledError）。"""
-        self._resume_event.clear()
+        # 不在此处 clear：resume() 已 set 的信号必须能被本轮 wait 看到；
+        # 每次进入挂起前由 resume() 负责 clear+set 的配对，避免竞态吞信号。
         while self._pause_flag:
             try:
                 await asyncio.wait_for(self._resume_event.wait(), timeout=0.5)
             except asyncio.TimeoutError:
                 pass
+            # 超时后重查 _pause_flag；resume 已将其置 False 则退出
+            if not self._pause_flag:
+                break
 
     async def _execute_node_once(self, node: dict) -> bool:
         ntype, params = node["type"], node.get("params") or {}
@@ -348,13 +361,17 @@ class FlowEngine:
                 await asyncio.sleep(1)
         if not dispatched:
             return False
+        # start_route 的 await 期间可能发生了 pause（HTTP 请求不检查 flag）：
+        # 若 pause 已生效（车端已 stop、route 被中止），抛 _Paused 让 _run_node 重发
+        if self._pause_flag:
+            raise _Paused()
         # 节点级 timeout_s 覆盖（测试/特殊节点），否则流 options / config
         timeout_s = float(params.get("timeout_s") or self._node_timeout_s)
         deadline = asyncio.get_running_loop().time() + timeout_s
         # 启动宽限：jarvis Start 为异步入队，route 名出现在 state 前需要一小段时间
         start_grace_deadline = asyncio.get_running_loop().time() + min(10.0, timeout_s)
         # head 判定基准：下发时刻的朝向
-        ctx = {"seen_running": False, "start_th": None}
+        ctx = {"seen_running": False, "start_th": None, "grace_deadline": start_grace_deadline}
         try:
             st0 = await self._jarvis.get_state()
             ctx["start_th"] = _pose_th(st0)
@@ -443,6 +460,11 @@ class FlowEngine:
             if v is True:
                 return True  # 瞬时完成（物理量已满足）
             return None  # 继续等待（启动宽限/节点超时由调用方兜底）
+        # cur 是其他 route 名：可能是上一个 route 的残留（异步入队尚未切换），
+        # 也可能是被顶替。启动宽限内且物理量未达标时继续等待，宽限外才判顶替失败。
+        now = asyncio.get_running_loop().time()
+        if now < ctx.get("grace_deadline", 0):
+            return None
         return False  # 被其他 route 顶替
 
     def _physical_verdict(self, node: dict, state: dict, ctx: dict):
