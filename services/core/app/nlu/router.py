@@ -18,6 +18,29 @@ from .rules import norm, parse_intent_rule
 # 复合连接词：从残余文本中剔除后再判断是否仍含意图
 _CONNECTOR_RE = re.compile(r"然后|接着|随后|之后|并且|而且|顺便|先|再|又|就|，|,")
 
+# LLM 输出的关键 slot 最低校验：缺失/类型错即丢弃该项
+# （0.5B 会把无关文本硬映射成 TASK_HEAD 等——宁可 UNKNOWN 也不错执行）
+_SLOT_REQUIRED = {
+    "TASK_HEAD": {"angle": (int, float)},
+    "FORK_LIFT_TO": {"n": (int, float)},
+    "SPEED_SET": {"n": (int, float)},
+    "GOTO_GOAL": {"goal": str},
+    "FLOW_START": {"name": str},
+}
+
+
+def _slots_sane(name: str, slots: dict) -> bool:
+    required = _SLOT_REQUIRED.get(name)
+    if not required:
+        return True
+    for key, types in required.items():
+        v = slots.get(key)
+        if isinstance(v, bool) or not isinstance(v, types):
+            return False
+        if isinstance(v, str) and not v.strip():
+            return False
+    return True
+
 
 def rule_route(text: str) -> tuple[str, list]:
     """规则路由。返回 (via, intents)，via ∈ rule | compound | unknown。"""
@@ -43,7 +66,7 @@ async def parse_intent(text: str, llm: LLMClient | None) -> list:
             valid = [
                 {"name": e["intent"], "slots": e["slots"], "raw_text": text}
                 for e in extracted
-                if e["intent"] in INTENT_NAMES
+                if e["intent"] in INTENT_NAMES and _slots_sane(e["intent"], e["slots"])
             ]
             if valid:
                 # 单位换算以小模型为弱项：LLM 首个意图与规则首个命中同名且规则带数值

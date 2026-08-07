@@ -4,25 +4,24 @@
 
 ## 结构
 
-- `apps/web` — Vue3 监控总览 + 语音条
-- `services/voice-gateway` — 配对、现场会话、意图、看门狗、代理 jarvis
-- `services/speech` — 离线 ASR/TTS 适配（V1 默认 mock，可替换真引擎）
+- `apps/web` — Vue3 监控总览 + 语音条 + 任务流编辑器
+- `services/core` — **V2 唯一后端** forkai-core（FastAPI，:19000，静态托管 apps/web/dist）
+- `services/mock-jarvis` — 车端模拟（:8080）
+- `services/llm-sidecar` — llama-server NLU 兜底侧车（:19002）
+- `services/voice-gateway` / `services/speech` — **V1 已冻结禁用**，请勿启动或修改
 - `packages/shared` — 共享类型与协议
 - `deploy` — systemd / 二维码脚本
 - `docs` — 需求冻结与验收
 
-## 快速开始
+## 快速开始（V2）
 
 ```bash
-npm install
-# 终端1
-npm run dev:speech
-# 终端2（默认代理 jarvis http://127.0.0.1:8080）
-npm run dev:gateway
-# 终端3
-npm run dev:web
+./start-v2.sh        # 一键起 mock-jarvis(:8080) + llama-server(:19002) + forkai-core(:19000)
+npm run dev:web      # 可选：前端热更新（vite :5173，代理到 :19000）
 ```
 
-浏览器打开 `http://<车IP>:5173`：配对 → 现场解锁 → 文本/PTT 下发指令。
+浏览器打开 `http://<车IP>:19000`：配对 → 现场解锁 → 文本/PTT 下发指令。
 
-验收清单见 `docs/acceptance.md`。需求冻结见 `docs/requirements-v1.md`。
+> **注意**：V1（voice-gateway/forkweb/speech）已冻结禁用，旧命令仅以 `dev:legacy:*` 前缀保留作历史参考；V1 需 node≥20 才能运行（系统 node16 会崩），请勿再启动。V2 验收见 `docs/acceptance-v2.md`。
+
+验收清单见 `docs/acceptance.md`（V1 历史）。需求冻结见 `docs/requirements-v1.md`。

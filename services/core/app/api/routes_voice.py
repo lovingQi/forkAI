@@ -70,6 +70,26 @@ async def run_utterance(request: Request, client_id: str, channel: str, text: st
         stripped = _strip_wake_words(text, cfg["wakeWords"]).strip()
         if not stripped:
             return {"succeed": True, "intent": {"name": "WAKE"}, "utterance": wake_text}
+    elif match_wake_word(text, cfg["wakeWords"]):
+        # ptt 通道唤醒词短路：纯唤醒词只应声，不进 NLU/LLM
+        # （否则 0.5B 会把"玖物玖物"硬映射成 QUERY_FORK_HEIGHT 等错误意图）；
+        # 混合指令剥离唤醒词后继续解析
+        stripped = _strip_wake_words(text, cfg["wakeWords"]).strip()
+        if not stripped:
+            wake_text = render("wake_ack")
+            spoken = await synthesize(wake_text, "wake", cfg)
+            bus.broadcast(
+                "tts",
+                {
+                    "text": spoken["text"],
+                    "style": "wake",
+                    "target": "device",
+                    "audioBase64": spoken["audio_base64"],
+                    "clientId": client_id,
+                },
+            )
+            return {"succeed": True, "intent": {"name": "WAKE"}, "utterance": wake_text}
+        text = stripped
 
     corrected = correct_asr(text)
     intent_list = await parse_intent(corrected, getattr(request.app.state, "llm", None))

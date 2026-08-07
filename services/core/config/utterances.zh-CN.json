@@ -33,6 +33,7 @@
   "query_task": "当前任务{routes}，状态{status}",
   "query_task_none": "当前没有任务",
   "query_alarm_explain": "{explain}",
+  "query_status": "电量百分之{n}，模式{mode}，{task}，告警{alarm}",
   "fail_unpaired": "失败：未配对",
   "fail_no_site": "失败：未现场解锁",
   "fail_lock": "失败：无点动控制权",

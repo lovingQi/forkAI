@@ -22,6 +22,7 @@
 | query_fork | 叉高{n}毫米 | 问答 |
 | query_motor | 电机{state} | 问答 |
 | query_alarm | 告警状态{alarm} | 问答 |
+| query_status | 电量百分之{n}，模式{mode}，{task}，告警{alarm} | 问答 |
 | fail_unpaired | 失败：未配对 | 错误 |
 | fail_no_site | 失败：未现场解锁 | 错误 |
 | fail_lock | 失败：无点动控制权 | 错误 |

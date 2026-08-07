@@ -33,9 +33,11 @@ def _extract_value(spec: dict, text: str):
             return False, None
         v = float(m.group(0))
         return True, int(v) if v == int(v) else v
-    # name：取原文过 norm（去标点空格小写，与规则提取的槽位一致）；
-    # 剥尾部"站点/语气词"但保留 点/区（与 rules._slot_follow_back 的保真策略一致）
+    # name：取原文过 norm（去标点空格，保留大小写）；
+    # 先剥一个引导介词（"从a点"/"到b点"是自然的回答方式），再剥尾部"站点/语气词"
+    # 但保留 点/区（与 rules._slot_follow_back 的保真策略一致）
     v = norm(text)
+    v = re.sub(r"^(从|自|到|去|往)", "", v)
     v = re.sub(r"(站点|吧|啊|呀|呢)$", "", v)
     return (bool(v), v or None)
 

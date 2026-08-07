@@ -561,6 +561,30 @@ class IntentExecutor:
                 "speak_kind": "query",
                 "speak_style": "ok",
             }
+        if name == "QUERY_STATUS":
+            # 车况聚合：电量 + 模式 + 当前任务 + 告警（task 文本在此预组，模板直接引用）
+            battery = state.get("battery")
+            mode_raw = state.get("mode") or "未知"
+            current = state.get("current_routes") or {}
+            routes_name = current.get("routes") if isinstance(current, dict) else None
+            task = (
+                f"正在执行{routes_name}"
+                if routes_name and routes_name != "TEMP_DEFAULT"
+                else "当前没有任务"
+            )
+            alarm = state.get("alarm") or "normal"
+            return {
+                "ok": True,
+                "utterance_key": "query_status",
+                "utterance_params": {
+                    "n": battery if battery is not None else 0,
+                    "mode": _MODE_MAP.get(mode_raw, mode_raw),
+                    "task": task,
+                    "alarm": _ALARM_MAP.get(alarm, alarm),
+                },
+                "speak_kind": "query",
+                "speak_style": "ok",
+            }
         return _fail("unknown", "fail_unknown")
 
 

@@ -71,6 +71,7 @@
       padding: 48px 64px 72px;
       display: none;
       flex-direction: column;
+      overflow-y: auto;
       background:
         radial-gradient(ellipse 80% 50% at 100% 0%, #dbeafe55, transparent 55%),
         var(--bg);
@@ -420,19 +421,38 @@
       h1 { font-size: 28px; }
       h2 { font-size: 22px; }
     }
+
+    @media (max-height: 800px) {
+      .slide { padding: 28px 48px 48px; }
+      h2 { font-size: 24px; margin-bottom: 16px; }
+      .lead { margin-bottom: 16px; }
+      th, td { padding: 8px 14px; }
+      .check-item { padding: 12px 14px; }
+    }
+
+    @media print {
+      html, body { height: auto; overflow: visible; }
+      body { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+      .topbar, .footer-nav { display: none; }
+      .stage { position: static; overflow: visible; }
+      .slide { position: static; display: flex; overflow: visible;
+               break-after: page; min-height: 100vh; }
+      .shot img { object-fit: contain; }
+    }
   </style>
 </head>
 <body>
   <div class="deck">
     <div class="topbar">
       <div class="brand">forkAI · 技术探索汇报</div>
-      <div class="meta" id="slideLabel">1 / 9</div>
+      <div class="meta" id="slideLabel">1 / 12 · 定位</div>
     </div>
 
     <div class="stage">
       <!-- 1 定位 -->
       <section class="slide title-slide active" data-title="定位">
         <div class="cover-badge">项目启动期 · 技术可行性探索（PoC）</div>
+        <p style="font-size:14px; color:var(--muted); margin:-8px 0 16px;">汇报日期：2026-08-06</p>
         <h1>forkAI：叉车语音控制与任务流编排的技术探索</h1>
         <p class="lead">
           本次汇报目标：同步探索进展——在模拟车端环境下，
@@ -504,7 +524,7 @@
             <tr>
               <td><span class="tag tag-green" style="margin:0">本期主攻</span></td>
               <td>语音识别、NLP/大模型理解、离线低延迟；驾驶、升降、任务调度、状态查询、安全干预；口语/模糊/复合指令、动态改任务、智能问答</td>
-              <td class="ok">ASR/NLU/TTS 全离线链路；六任务 + 任务流编辑/执行/语音触发；分级锁与急停退场；缺参追问与流控 — mock 已跑通</td>
+              <td class="ok">ASR/NLU/TTS 全离线链路；六任务 + 任务流编辑/执行/语音触发；分级锁与急停退场；缺参追问与流控 — Mock 已跑通</td>
             </tr>
             <tr>
               <td><span class="tag tag-blue" style="margin:0">下沉车端</span></td>
@@ -514,7 +534,7 @@
             <tr>
               <td><span class="tag tag-amber" style="margin:0">待真车验证</span></td>
               <td>嘈杂车间唤醒与识别；复合/模糊指令现场效果；端侧实时控制可靠性</td>
-              <td class="pending">软件链路有设计与 mock 证据；RK3588 延迟、音区、route 完成语义等需真车窗口验证</td>
+              <td class="pending">软件链路有设计与 Mock 证据；RK3588 延迟、音区、route 完成语义等需真车窗口验证</td>
             </tr>
           </tbody>
         </table>
@@ -657,7 +677,7 @@
               <text x="100" y="488" font-size="13" fill="#5c6b7a">state / map / params / control / scheduler(route)</text>
 
               <rect x="600" y="418" width="440" height="78" rx="12" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5" filter="url(#soft)" />
-              <text x="620" y="444" font-size="12" font-weight="700" fill="#b45309">LLM 侧车</text>
+              <text x="620" y="444" font-size="12" font-weight="700" fill="#b45309">LLM 本地服务</text>
               <text x="620" y="468" font-size="18" font-weight="700" fill="#0f172a">llama-server · :19002</text>
               <text x="620" y="488" font-size="13" fill="#5c6b7a">Qwen2-0.5B-Instruct Q4_K_M · 规则兜底</text>
             </svg>
@@ -674,8 +694,12 @@
       <!-- 6 系统测试截图：总览与语音 -->
       <section class="slide" data-title="测试截图·语音">
         <div class="eyebrow">06 · 系统测试截图</div>
-        <h2 style="margin-bottom: 14px;">Mock 联调：配对解锁 + 文本语音指令</h2>
-        <div class="shots">
+        <h2 style="margin-bottom: 14px;">Mock 联调：配对闸门 → 解锁 → 语音指令</h2>
+        <div class="shots" style="grid-template-columns: repeat(3, 1fr);">
+          <figure class="shot">
+            <figcaption>配对闸门 · 待解锁 <span>E2E · mock-jarvis</span></figcaption>
+            <img src="briefing-assets/01-pair-gate.png" alt="配对闸门页面" />
+          </figure>
           <figure class="shot">
             <figcaption>总览页已配对 / 已解锁 <span>E2E · mock-jarvis</span></figcaption>
             <img src="briefing-assets/02-dashboard-unlocked.png" alt="总览页现场解锁后" />
@@ -691,9 +715,13 @@
       <section class="slide" data-title="测试截图·任务流">
         <div class="eyebrow">07 · 系统测试截图</div>
         <h2 style="margin-bottom: 14px;">Mock 联调：任务流编辑并执行成功</h2>
-        <div class="shots" style="grid-template-columns: 1fr;">
-          <figure class="shot wide">
-            <figcaption>E2E演示流程 · succeeded <span>货叉150 → a点到b点 → 货叉75</span></figcaption>
+        <div class="shots">
+          <figure class="shot">
+            <figcaption>任务流编辑器 · 已保存 <span>E2E 演示流程</span></figcaption>
+            <img src="briefing-assets/04-flow-editor-saved.png" alt="任务流编辑器" />
+          </figure>
+          <figure class="shot">
+            <figcaption>E2E 演示流程 · succeeded <span>货叉150 → a点到b点 → 货叉75</span></figcaption>
             <img src="briefing-assets/05-flow-executed-succeeded.png" alt="任务流执行成功" />
           </figure>
         </div>
@@ -742,7 +770,7 @@
             </tr>
             <tr>
               <td>route 完成语义判定</td>
-              <td class="ok">按 mock 语义实现</td>
+              <td class="ok">按 Mock 语义实现</td>
               <td class="pending">需与真车对齐</td>
             </tr>
           </tbody>
@@ -752,7 +780,7 @@
         </p>
       </section>
 
-      <!-- 6 边界未知 -->
+      <!-- 9 边界未知 -->
       <section class="slide" data-title="边界与未知">
         <div class="eyebrow">09 · 诚实边界</div>
         <h2>已知边界与未知项</h2>
@@ -780,7 +808,7 @@
         </div>
       </section>
 
-      <!-- 7 结束标准 -->
+      <!-- 10 结束标准 -->
       <section class="slide" data-title="探索结束标准">
         <div class="eyebrow">10 · 收口线</div>
         <h2>建议的探索结束标准</h2>
@@ -810,7 +838,7 @@
         </div>
       </section>
 
-      <!-- 8 下一步 -->
+      <!-- 11 下一步 -->
       <section class="slide" data-title="下一步">
         <div class="eyebrow">11 · 下一步</div>
         <h2>建议的下一步</h2>
@@ -839,7 +867,7 @@
         </p>
       </section>
 
-      <!-- 9 请示 -->
+      <!-- 12 请示 -->
       <section class="slide" data-title="请示确认">
         <div class="eyebrow">12 · 请示</div>
         <h2>请领导确认</h2>

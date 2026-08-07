@@ -12,7 +12,7 @@ INTENT_NAMES = {
     "FORK_LIFT_UP", "FORK_LIFT_DOWN", "FORK_LIFT_TO",
     "QUERY_BATTERY", "QUERY_MODE", "QUERY_POSE",
     "QUERY_FORK_HEIGHT", "QUERY_MOTOR", "QUERY_ALARM",
-    "QUERY_SPEED", "QUERY_TASK", "QUERY_ALARM_EXPLAIN",
+    "QUERY_SPEED", "QUERY_TASK", "QUERY_ALARM_EXPLAIN", "QUERY_STATUS",
     # 预留（Week 2）
     "TASK_HEAD", "TASK_FOLLOW_BACK", "TASK_GET_PALLET", "TASK_CHARGE",
     "CONFIRM", "CANCEL",
@@ -35,6 +35,7 @@ SYSTEM_PROMPT = """你是叉车语音指令的意图抽取器。把用户的中�
 - FORK_LIFT_TO 货叉调到指定高度，slots: {"n": 毫米}（米×1000，厘米×10，默认毫米）
 - QUERY_BATTERY 查电量 / QUERY_MODE 查模式 / QUERY_POSE 查位置
 - QUERY_FORK_HEIGHT 查叉高 / QUERY_MOTOR 查电机 / QUERY_ALARM 查告警
+- QUERY_STATUS 查车况（电量/模式/当前任务/告警的综合状态）
 - TASK_HEAD 调头，slots: {"angle": 角度数字}
 - TASK_FOLLOW_BACK 跟车返回，slots: {"start_name": "起点", "target_name": "终点", "get_pallet": true或false}
 - TASK_GET_PALLET 取货 / TASK_CHARGE 去充电桩充电，slots: {"goal": "充电桩名,可省略"}

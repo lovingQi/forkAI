@@ -1,6 +1,7 @@
 """规则意图解析：正则规则 1:1 迁移 intent.ts。
 
-norm() 先去空白与标点再小写；规则顺序与 TS 版 RULES 数组完全一致（先匹配先赢）。
+norm() 去空白与标点（保留大小写，英文站点名保真）；匹配统一 re.IGNORECASE；
+规则顺序与 TS 版 RULES 数组完全一致（先匹配先赢）。
 返回 dict：{"name": ..., "slots": {...}, "raw_text": ...}。
 """
 import re
@@ -54,7 +55,7 @@ def norm(text: str) -> str:
     # 删标点，但保留小数点（前后都是数字的 . 如 1.5米），否则 1.5→15 出错
     text = re.sub(r"(?<!\d)\.|\.(?!\d)", "", text)  # 删非小数点
     text = re.sub(r"[，,。!！？?]", "", text)
-    return text.lower()
+    return text
 
 
 def _slot_speed_set(m: re.Match) -> dict:
@@ -71,7 +72,7 @@ _UNIT_TO_MM = {"毫米": 1, "mm": 1, "厘米": 10, "cm": 10, "米": 1000, "m": 1
 
 def _slot_fork_to(m: re.Match) -> dict:
     value = float(m.group(1))
-    unit = m.group(2) or "毫米"
+    unit = (m.group(2) or "毫米").lower()
     mm = value * _UNIT_TO_MM.get(unit, 1)
     return {"n": int(mm + 0.5)}
 
@@ -176,7 +177,7 @@ RULES = [
     # TASK_GET_PALLET / TASK_FOLLOW_BACK 必须在 GOTO_GOAL 之前：
     # "从A点去B点" 含 "去B点" 会被 GOTO 吞掉；GOTO 的 "去X" 无 "从" 不受影响
     {"name": "TASK_GET_PALLET",
-     "patterns": [r"识别栈板", r"栈板识别", r"相机取货", r"自动取货", r"叉取栈板"]},
+     "patterns": [r"识别栈板", r"栈板识别", r"相机取货", r"自动取货", r"叉取栈板", r"栈板取货"]},
     {
         "name": "TASK_FOLLOW_BACK",
         "patterns": [
@@ -208,6 +209,7 @@ RULES = [
     # QUERY_SPEED：必须带"多少|多快"等疑问词，与 SPEED_UP/DOWN/SET 零冲突
     {"name": "QUERY_SPEED", "patterns": [r"速度多少", r"当前速度", r"多快", r"跑多快"]},
     {"name": "QUERY_TASK", "patterns": [r"什么任务", r"当前任务", r"在干(嘛|什么)", r"任务进度", r"执行到哪"]},
+    {"name": "QUERY_STATUS", "patterns": [r"车况", r"车辆状态", r"车怎么样", r"状态怎么样"]},
     # QUERY_ALARM_EXPLAIN 必须在 QUERY_ALARM 之前："怎么了/为什么停"归解释类；
     # QUERY_ALARM 只保留 告警/报警 的状态播报
     {"name": "QUERY_ALARM_EXPLAIN",
@@ -222,7 +224,7 @@ def parse_intent_rule(raw_text: str) -> dict:
         return {"name": "UNKNOWN", "slots": {}, "raw_text": raw_text, "span": (0, 0)}
     for rule in RULES:
         for pattern in rule["patterns"]:
-            m = re.search(pattern, text)
+            m = re.search(pattern, text, re.IGNORECASE)
             if m:
                 slot_fn = rule.get("slot")
                 return {
@@ -258,4 +260,4 @@ def wake_word_pattern(wake_word: str) -> str:
 
 def match_wake_word(raw_text: str, wake_words: list) -> bool:
     text = norm(raw_text)
-    return any(re.search(wake_word_pattern(w), text) for w in wake_words)
+    return any(re.search(wake_word_pattern(w), text, re.IGNORECASE) for w in wake_words)
