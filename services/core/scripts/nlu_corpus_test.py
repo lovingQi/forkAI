@@ -54,6 +54,7 @@ CORPUS: list[tuple[str, str, dict | None]] = [
     ("掉头", "TASK_HEAD", {"angle": 180}),
     # ---- 任务 ----
     ("从A点到B点", "TASK_FOLLOW_BACK", {"start_name": "A点", "target_name": "B点"}),
+    ("从从A点到B点", "TASK_FOLLOW_BACK", {"start_name": "A点", "target_name": "B点"}),
     ("从1号区去2号区", "TASK_FOLLOW_BACK", {"start_name": "1号区", "target_name": "2号区"}),
     ("盲叉取货", "TASK_FOLLOW_BACK", {"get_pallet": True}),
     ("识别栈板", "TASK_GET_PALLET", None),

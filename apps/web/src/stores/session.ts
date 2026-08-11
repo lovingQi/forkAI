@@ -26,38 +26,54 @@ function speakBrowser(text: string, style: string) {
   window.speechSynthesis.speak(u)
 }
 
-/** 播放 base64 音频（piper wav）。autoplay 被拦截或出错时回退浏览器 TTS。 */
-let currentAudio: HTMLAudioElement | null = null
+/** 常驻 AudioContext 播放通道：每次 new Audio 都会重开输出流，设备休眠时
+ *  开头 1~2 字会被流建立延迟吃掉；首次播放创建并复用同一 AudioContext 保持链路热备，
+ *  配合服务端前导静音垫覆盖硬件唤醒期。失败回退浏览器 speechSynthesis。 */
+let audioCtx: AudioContext | null = null
+let currentSrc: AudioBufferSourceNode | null = null
 
-function playBase64Audio(audioBase64: string, text: string, style: string) {
+function ensureAudioCtx(): AudioContext {
+  if (!audioCtx) audioCtx = new AudioContext()
+  if (audioCtx.state === 'suspended') void audioCtx.resume()
+  return audioCtx
+}
+
+function base64ToArrayBuffer(b64: string): ArrayBuffer {
+  const bin = atob(b64)
+  const bytes = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+  return bytes.buffer
+}
+
+async function playBase64Audio(audioBase64: string, text: string, style: string) {
   try {
-    const audio = new Audio(`data:audio/wav;base64,${audioBase64}`)
-    currentAudio = audio
-    audio.onended = () => {
-      if (currentAudio === audio) currentAudio = null
+    const ctx = ensureAudioCtx()
+    const buf = await ctx.decodeAudioData(base64ToArrayBuffer(audioBase64))
+    stopCurrentAudio()
+    const src = ctx.createBufferSource()
+    src.buffer = buf
+    src.connect(ctx.destination)
+    src.onended = () => {
+      if (currentSrc === src) currentSrc = null
     }
-    const p = audio.play()
-    if (p && typeof p.catch === 'function') {
-      p.then(() => console.log('[forkai] 走 piper 音频播放'))
-        .catch((e) => {
-          if (currentAudio === audio) currentAudio = null
-          console.warn('[forkai] piper 音频被拦截，回退 speechSynthesis:', e?.name || e)
-          speakBrowser(text, style)
-        })
-    } else {
-      console.log('[forkai] 走 piper 音频播放')
-    }
+    currentSrc = src
+    src.start()
+    console.log('[forkai] 走 piper 音频播放(AudioContext)')
   } catch (e) {
-    console.warn('[forkai] piper 音频构造失败，回退 speechSynthesis:', e)
+    console.warn('[forkai] piper 音频播放失败，回退 speechSynthesis:', e)
     speakBrowser(text, style)
   }
 }
 
 /** TTS 打断：停止当前 piper 音频与浏览器朗读（收到 asr_final 时调用）。 */
 function stopCurrentAudio() {
-  if (currentAudio) {
-    currentAudio.pause()
-    currentAudio = null
+  if (currentSrc) {
+    try {
+      currentSrc.stop()
+    } catch {
+      /* 已停止的 source 重复 stop 会抛 InvalidStateError，忽略 */
+    }
+    currentSrc = null
   }
   if ('speechSynthesis' in window) window.speechSynthesis.cancel()
 }

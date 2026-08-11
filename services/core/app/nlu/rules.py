@@ -97,12 +97,15 @@ def _slot_head(m: re.Match) -> dict:
 def _slot_follow_back(m: re.Match) -> dict:
     """TASK_FOLLOW_BACK：start_name/target_name 保留地图点原名（点/区不剥，
     仅去尾部"站点"语气词——与 GOTO 剥"站点|点"不同，这里保真优先，注释见计划步骤28）；
+    起点/终点组先剥重复引导介词（"从从A点到到B点"容错）；
     带 盲叉|叉取|取货 时 get_pallet=true。"""
     slots = {}
     groups = [g for g in m.groups() if g]
     if len(groups) >= 2:
-        slots["start_name"] = re.sub(r"站点$", "", groups[0])
-        slots["target_name"] = re.sub(r"站点$", "", groups[1])
+        start = re.sub(r"^(从|自)+", "", groups[0])
+        target = re.sub(r"^(到|去|往)+", "", groups[1])
+        slots["start_name"] = re.sub(r"站点$", "", start)
+        slots["target_name"] = re.sub(r"站点$", "", target)
     if re.search(r"盲叉|叉取|取货", m.string):
         slots["get_pallet"] = True
     return slots

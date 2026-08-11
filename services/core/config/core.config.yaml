@@ -22,6 +22,7 @@ speak:
   pttMove: both
   query: device
   beep: true
+  leadSilenceMs: 250
 # TTS 内置：直接调 piper CLI（路径相对 services/core 目录）
 piper:
   bin: models/piper/piper/piper

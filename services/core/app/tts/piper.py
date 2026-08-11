@@ -7,12 +7,15 @@
 - 提示音（步骤33）：speak.beep=true 时，style=ok 前缀拼 beep_ok、style=fail 拼
   beep_fail（纯 PCM 拼接后重写 wav 头，参数与 piper 输出一致）；wake 不拼；
   mock 回退（audio_base64=None）不受影响。
+- 拉丁字母转写（_LETTER_ZH）：zh_CN-huayan 无英文字母发音规则（"p1点"会念成"崩点"），
+  进 piper 前把字母换成中文读音字；仅影响音频，返回的 text 字段保持原文。
 """
 import asyncio
 import base64
 import io
 import os
 import random
+import re
 import string
 import tempfile
 import wave
@@ -21,6 +24,20 @@ from ..config import CORE_ROOT, now_ms
 
 _RATE = {"fail": 0.9, "wake": 1.1}
 _RATE_DEFAULT = 1.05
+
+# 拉丁字母 → 中文读音（工业习惯读法；数字不动，piper 数字发音已实测正常）
+_LETTER_ZH = {
+    "a": "诶", "b": "比", "c": "西", "d": "低", "e": "衣", "f": "爱福",
+    "g": "记", "h": "爱尺", "i": "爱", "j": "勾", "k": "开", "l": "爱乐",
+    "m": "爱姆", "n": "恩", "o": "欧", "p": "批", "q": "丘", "r": "阿尔",
+    "s": "爱思", "t": "提", "u": "优", "v": "维", "w": "达不溜", "x": "爱克斯",
+    "y": "歪", "z": "贼",
+}
+
+
+def _tts_normalize(text: str) -> str:
+    """进 piper 前的文本归一化：拉丁字母 → 中文读音字（大小写均可）。"""
+    return re.sub(r"[A-Za-z]", lambda m: _LETTER_ZH[m.group(0).lower()], text)
 
 _BEEP_FILE = {"ok": "beep_ok.wav", "fail": "beep_fail.wav"}
 _beep_cache: dict = {}
@@ -81,6 +98,31 @@ def _prepend_beep(wav_bytes: bytes, style: str) -> bytes:
         return wav_bytes
 
 
+_LEAD_SILENCE_MS_DEFAULT = 250
+
+
+def _prepend_silence(wav_bytes: bytes, ms: int) -> bytes:
+    """播报最前面拼 ms 毫秒静音垫（纯 PCM 拼接后重写 wav 头，参数与 piper 输出一致）。
+    浏览器/音箱/功放从休眠到出声有百毫秒级建立延迟，前导垫把这段让出来，
+    避免正文开头一两个字被吃。失败原样返回。"""
+    if ms <= 0:
+        return wav_bytes
+    try:
+        with wave.open(io.BytesIO(wav_bytes), "rb") as w:
+            params = w.getparams()
+            pcm = w.readframes(w.getnframes())
+        n = int(params.framerate * ms / 1000)
+        silence = b"\x00" * (n * params.sampwidth * params.nchannels)
+        out = io.BytesIO()
+        with wave.open(out, "wb") as w:
+            w.setparams(params)
+            w.writeframes(silence + pcm)
+        return out.getvalue()
+    except Exception as e:
+        print(f"[forkai-core] 前导静音拼接失败，原样返回: {e}")
+        return wav_bytes
+
+
 async def _synthesize_with_piper(cfg: dict, text: str) -> bytes:
     """调 piper CLI 合成，返回 wav 字节；失败抛异常由调用方回退。"""
     p = _resolve(cfg)
@@ -100,7 +142,7 @@ async def _synthesize_with_piper(cfg: dict, text: str) -> bytes:
             stdin=asyncio.subprocess.PIPE,
             env=env,
         )
-        await proc.communicate(text.encode("utf-8"))
+        await proc.communicate(_tts_normalize(text).encode("utf-8"))
         if proc.returncode != 0:
             raise RuntimeError(f"piper exit {proc.returncode}")
         with open(out_file, "rb") as f:
@@ -119,6 +161,8 @@ async def synthesize(text: str, style: str, cfg: dict) -> dict:
             wav_bytes = await _synthesize_with_piper(cfg, text)
             if (cfg.get("speak") or {}).get("beep", True):
                 wav_bytes = _prepend_beep(wav_bytes, style)
+            lead_ms = int((cfg.get("speak") or {}).get("leadSilenceMs", _LEAD_SILENCE_MS_DEFAULT))
+            wav_bytes = _prepend_silence(wav_bytes, lead_ms)
             return {
                 "text": text,
                 "style": style,

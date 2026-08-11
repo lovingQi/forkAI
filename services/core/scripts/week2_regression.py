@@ -137,16 +137,18 @@ async def main() -> int:
         )
         check("5.问答三连", ok, f"{r1['utterance']!r} / {r2['utterance']!r} / {r3['utterance']!r}")
 
-        # ---- 6. 提示音（前缀样本级一致 + 时长差≈beep，piper 随机性给宽容差） ----
+        # ---- 6. 提示音（前导静音垫≈250ms + beep 前缀样本级一致 + 时长差） ----
         r = await say(c, token, "前进")
         with wave.open(str(CORE_ROOT / "assets" / "beep_ok.wav"), "rb") as w:
             beep_frames = w.readframes(w.getnframes())
             beep_dur = w.getnframes() / w.getframerate()
         rate, dur, frames = wav_info(r["audioBase64"])
-        prefix_ok = frames[: len(beep_frames)] == beep_frames
-        dur_ok = dur > beep_dur + 0.3
-        check("6.提示音拼接", prefix_ok and dur_ok,
-              f"前缀==beep_ok:{prefix_ok} 总时长={dur:.2f}s(beep {beep_dur:.2f}s)")
+        pad = int(rate * 0.25) * 2  # leadSilenceMs=250，16bit 单声道
+        pad_ok = frames[:pad] == b"\x00" * pad
+        prefix_ok = frames[pad : pad + len(beep_frames)] == beep_frames
+        dur_ok = dur > 0.25 + beep_dur + 0.3
+        check("6.提示音拼接", pad_ok and prefix_ok and dur_ok,
+              f"静音垫:{pad_ok} 前缀==beep_ok:{prefix_ok} 总时长={dur:.2f}s(beep {beep_dur:.2f}s)")
 
         # ---- 7. 连续对话 30s 免唤醒（滚动续期：t=0/25/50 三次 cabin 指令） ----
         r = await say(c, token, "玖物玖物", channel="cabin")
