@@ -4,7 +4,7 @@
 |---|---|
 | 版本 | 1.0 |
 | 日期 | 2026-08-11 |
-| 状态 | 待批准生效 |
+| 状态 | 已批准生效（2026-08-12，批准人 xbl） |
 | 基线关系 | 需求以 `docs/requirements-v2.md` 为准；实施状态以 `docs/implementation-plan-v2.md` 为准；验收证据以 `docs/acceptance-v2.md` 与实际测试输出为准。本文为**周期计划基线**，不替代上述文档职能。 |
 | 关联文档 | `docs/prd.md`（产品需求）、`docs/tdd.md`（技术设计）、`docs/architecture-v2.md` |
 
