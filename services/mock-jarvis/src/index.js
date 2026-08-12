@@ -6,9 +6,29 @@
  */
 import http from 'node:http'
 import crypto from 'node:crypto'
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const HOST = process.env.MOCK_JARVIS_HOST || '127.0.0.1'
 const PORT = Number(process.env.MOCK_JARVIS_PORT || 8080)
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
+// 仿真专用地图（真车走 Jarvis 自身 /api/map，不读此文件）
+let mapData = null
+function loadMapData() {
+  const mapPath = process.env.MOCK_MAP_PATH
+    ? path.resolve(process.env.MOCK_MAP_PATH)
+    : path.join(__dirname, '../maps/umcl-map3.json')
+  try {
+    mapData = JSON.parse(fs.readFileSync(mapPath, 'utf8'))
+    console.log(`【mock车】已加载地图 ${mapPath} Header=${mapData?.Header || ''}`)
+  } catch (e) {
+    mapData = null
+    console.error(`【mock车】地图加载失败 ${mapPath}: ${e.message}`)
+  }
+}
+loadMapData()
 
 // ---- 内存假车况（对齐真车 /api/state 语义，依据见各注释）----
 const state = {
@@ -19,7 +39,7 @@ const state = {
   // status = "mode,子状态" 组合串（JWebService.cpp:154）
   mode: 'Idle',
   substatus: 'Idle',
-  map_name: 'demo-map',
+  map_name: (mapData && mapData.Header) || 'demo-map',
   score: 0.98,
   battery: 87,
   charing: false,
@@ -27,7 +47,8 @@ const state = {
   safe: true,
   motor: true,
   alarm: 'normal', // normal | estop | lost | stuck
-  pose: [12.5, 3.2, 1.57],
+  // 与仿真地图 PathPoint p1 同坐标系（mm）；无地图时仍可用该演示位姿
+  pose: [-11696, -624, 1.57],
   vel: [0, 0, 0],
   fork_height: 120,
   speed: 20 // 内部用；真车 /api/state 无 speed 字段（不下发）
@@ -158,7 +179,8 @@ function highPayload() {
     laser_data: { data: [] },
     path_points: { points: [] },
     clearances: { points: [] },
-    robot_size: { width: 0.9, length: 2.2, length_front: 1.2, length_rear: 1.0 }
+    // 与 CanvasView 一致：毫米口径（非米）
+    robot_size: { width: 900, length: 2200, length_front: 1200, length_rear: 1000 }
   }
 }
 
@@ -261,7 +283,7 @@ const server = http.createServer((req, res) => {
 
   if (req.method === 'GET' && path === '/api/state') return sendJson(res, 200, statePayload())
   if (req.method === 'GET' && path === '/api/map') {
-    return sendJson(res, 200, { name: state.map_name, data: null })
+    return sendJson(res, 200, { name: state.map_name, data: mapData })
   }
   if (req.method === 'GET' && path === '/api/params') return sendJson(res, 200, { params: {} })
 
