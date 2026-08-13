@@ -242,7 +242,7 @@ function worldToScreen(p: Point): Point {
   }
 }
 
-// 以机器人当前位置为中心(跟随)，缩放保持不变
+// 以机器人当前位置为中心(跟随)，缩放保持不变 —— 用户主动「回中」
 function recenter() {
   userInteracted = true
   follow = true
@@ -255,12 +255,71 @@ function zoom(factor: number) {
   scale.value = Math.min(2, Math.max(0.001, scale.value * factor))
 }
 
-// 初始视图：以机器人为中心，固定初始分辨率(约 35px/m)，超出范围靠拖动查看
-function initialView() {
-  follow = true
-  panX = 0
-  panY = 0
+/** 固定地图视角：不跟随车；有地图则 fit 包围盒，无则定格当前 pose */
+function fitMapView() {
+  follow = false
+  const c = cv.value
+  const pad = 40
+  // 优先 mapMeta（与离屏缓存一致）
+  let minX: number | null = null
+  let maxX: number | null = null
+  let minY: number | null = null
+  let maxY: number | null = null
+  if (mapMeta) {
+    minX = mapMeta.minX
+    maxX = mapMeta.minX + mapMeta.w * mapMeta.res
+    maxY = mapMeta.maxY
+    minY = mapMeta.maxY - mapMeta.h * mapMeta.res
+  } else if (store.map.data) {
+    const data = store.map.data
+    const minP = String(data.MinPose || '0 0')
+      .trim()
+      .split(/\s+/)
+      .map((v: string) => parseFloat(v))
+    const maxP = String(data.MaxPose || '0 0')
+      .trim()
+      .split(/\s+/)
+      .map((v: string) => parseFloat(v))
+    minX = minP[0]
+    minY = minP[1]
+    maxX = maxP[0]
+    maxY = maxP[1]
+  }
+  if (
+    minX != null &&
+    maxX != null &&
+    minY != null &&
+    maxY != null &&
+    isFinite(minX) &&
+    isFinite(maxX) &&
+    isFinite(minY) &&
+    isFinite(maxY) &&
+    maxX > minX &&
+    maxY > minY &&
+    c &&
+    c.width > 0 &&
+    c.height > 0
+  ) {
+    const cx = (minX + maxX) / 2
+    const cy = (minY + maxY) / 2
+    const worldW = maxX - minX
+    const worldH = maxY - minY
+    const sx = (c.width - pad * 2) / worldW
+    const sy = (c.height - pad * 2) / worldH
+    scale.value = Math.min(2, Math.max(0.001, Math.min(sx, sy)))
+    panX = cx
+    panY = cy
+    return
+  }
+  // 无地图：定格机器人位置，不跟随
+  panX = store.pose[0]
+  panY = store.pose[1]
   scale.value = INIT_SCALE
+}
+
+// 初始视图：固定地图（不跟车），便于演示路径全程可见
+function initialView() {
+  fitMapView()
 }
 
 function onWheel(e: WheelEvent) {
@@ -522,8 +581,9 @@ function drawAvoidBox() {
   const smin = Number(av.clearance_side_min?.default)
   if (!isFinite(fmin) || !isFinite(bmin) || !isFinite(smin)) return
 
-  const [x, y, thDeg] = store.pose
-  const th = (thDeg * Math.PI) / 180
+  const [x, y, thRad] = store.pose
+  // 协议 pose[2] 为弧度（docs/tdd.md）；勿再按角度换算
+  const th = thRad
   const size = store.robotSize
   const front = (size.length_front || size.length / 2 || 400) + fmin
   const rear = (size.length_rear || size.length / 2 || 400) + bmin
@@ -567,8 +627,9 @@ function drawLaser() {
 
 function drawRobot() {
   if (!ctx) return
-  const [x, y, thDeg] = store.pose
-  const th = (thDeg * Math.PI) / 180
+  const [x, y, thRad] = store.pose
+  // 协议 pose[2] 为弧度（docs/tdd.md）；勿再按角度换算
+  const th = thRad
   const size = store.robotSize
   const front = size.length_front || size.length / 2 || 400
   const rear = size.length_rear || size.length / 2 || 400

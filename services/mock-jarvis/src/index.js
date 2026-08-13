@@ -68,8 +68,72 @@ const MODE_NAMES = {
 const DEFAULT_ROUTES = { routes: 'TEMP_DEFAULT', key: 'a', id: '', status: 'running' }
 
 let forkTimer = null
+let moveTimer = null
+let driveTimer = null
+let headTimer = null
+// 动画期间推给 /ws/high 的剩余路径折线；空闲为 []
+let pathPointsForHigh = []
 // 真车 current_routes.status 恒为 "running"（JWebService.cpp:171 硬编码）
 let currentRoutes = { ...DEFAULT_ROUTES }
+
+const MOVE_DURATION_MS = 5000
+const MOVE_TICK_MS = 100
+const FALLBACK_TASK_MS = 2000
+// 仿真点动积分（仅 mock；真车由底盘积分，不读此逻辑）
+const DRIVE_TICK_MS = 50
+const HEAD_DURATION_MS = 1000
+const HEAD_TICK_MS = 50
+// 线速度 mm/s = trans * speed * DRIVE_LIN_PER_SPEED（speed=20 → ±300mm/s）
+const DRIVE_LIN_PER_SPEED = 15
+// 角速度 rad/s = rot * (DRIVE_ANG_BASE + speed/100 * DRIVE_ANG_PER_SPEED)
+const DRIVE_ANG_BASE = 0.4
+const DRIVE_ANG_PER_SPEED = 0.8
+
+function clearDriveTimer() {
+  if (driveTimer) {
+    clearInterval(driveTimer)
+    driveTimer = null
+  }
+}
+
+function clearHeadTimer() {
+  if (headTimer) {
+    clearInterval(headTimer)
+    headTimer = null
+  }
+}
+
+function clearMoveTimer() {
+  if (moveTimer) {
+    clearInterval(moveTimer)
+    moveTimer = null
+  }
+  pathPointsForHigh = []
+  state.vel = [0, 0, 0]
+}
+
+/** 停掉点动积分（不改 pose；新 route / stop 时用） */
+function stopDriveMotion() {
+  clearDriveTimer()
+  state.vel = [0, 0, 0]
+}
+
+function startDriveLoopIfNeeded() {
+  if (driveTimer) return
+  driveTimer = setInterval(() => {
+    const vx = state.vel[0] || 0
+    const omega = state.vel[2] || 0
+    if (Math.abs(vx) < 1e-6 && Math.abs(omega) < 1e-6) {
+      clearDriveTimer()
+      return
+    }
+    const dt = DRIVE_TICK_MS / 1000
+    const th = state.pose[2]
+    state.pose[0] += vx * Math.cos(th) * dt
+    state.pose[1] += vx * Math.sin(th) * dt
+    state.pose[2] = th + omega * dt
+  }, DRIVE_TICK_MS)
+}
 
 function routeEnd() {
   currentRoutes = { ...DEFAULT_ROUTES }
@@ -79,14 +143,324 @@ function routeEnd() {
 
 function routeBegin(name, cmd) {
   // 真车语义：新 route 启动会 Stop 旧任务（JRoutes.h:54 注释）
-  // —— 清理未完成的叉高渐变，防止旧定时器 routeEnd 覆盖新 route 的 current_routes
+  // —— 清理未完成的叉高渐变 / 路径动画 / 点动积分 / head 旋转
   if (forkTimer) {
     clearInterval(forkTimer)
     forkTimer = null
   }
+  clearMoveTimer()
+  clearHeadTimer()
+  stopDriveMotion()
   currentRoutes = { routes: name, key: 'a', id: '', status: 'running' }
   state.mode = MODE_NAMES[cmd] || 'Idle'
   state.substatus = MODE_NAMES[cmd] || ''
+}
+
+/** head：约 1s 平滑转到目标角（度→弧度）；mock_fail 不改角 */
+function startHeadSim(name, node) {
+  const fail = !!node.mock_fail
+  const angleDeg = Number(node.angle || 0)
+  routeBegin(name, 'head')
+  state.substatus = 'head'
+  console.log(`【mock车】head 原地旋转 ${angleDeg}度 fail=${fail}`)
+
+  if (fail) {
+    setTimeout(() => {
+      routeEnd()
+      console.log(`【mock车】head 结束 pose[2]=${state.pose[2].toFixed(3)}rad fail=true`)
+    }, HEAD_DURATION_MS)
+    return
+  }
+
+  const startTh = state.pose[2]
+  const delta = (angleDeg * Math.PI) / 180
+  const targetTh = startTh + delta
+  const ticks = Math.max(1, Math.round(HEAD_DURATION_MS / HEAD_TICK_MS))
+  let step = 0
+  clearHeadTimer()
+  headTimer = setInterval(() => {
+    step += 1
+    if (step >= ticks) {
+      state.pose[2] = targetTh
+      clearHeadTimer()
+      routeEnd()
+      console.log(`【mock车】head 结束 pose[2]=${state.pose[2].toFixed(3)}rad fail=false`)
+      return
+    }
+    const t = step / ticks
+    state.pose[2] = startTh + delta * t
+  }, HEAD_TICK_MS)
+}
+
+// ---- 仿真路径动画（仅 mock；真车由 Jarvis 自身导航，不走此逻辑）----
+
+function parsePoseXY(poseStr) {
+  if (!poseStr) return { x: 0, y: 0 }
+  const p = String(poseStr).trim().split(/\s+/).map((v) => parseFloat(v))
+  return { x: p[0] || 0, y: p[1] || 0 }
+}
+
+function buildPathGraph(data) {
+  const pts = {}
+  const adj = {}
+  const raw = []
+  const list = data && data.Objs && Array.isArray(data.Objs.PathPoint) ? data.Objs.PathPoint : []
+  for (const pp of list) {
+    if (!pp || !pp.name) continue
+    raw.push(pp)
+    const xy = parsePoseXY(pp.pose)
+    pts[pp.name] = xy
+    if (!adj[pp.name]) adj[pp.name] = new Set()
+  }
+  for (const pp of raw) {
+    const a = pp.name
+    for (const con of pp.connections || []) {
+      if (!con || !con.name || !pts[con.name]) continue
+      adj[a].add(con.name)
+      if (!adj[con.name]) adj[con.name] = new Set()
+      adj[con.name].add(a)
+    }
+  }
+  const adjList = {}
+  for (const [k, s] of Object.entries(adj)) adjList[k] = [...s]
+  return { pts, adj: adjList, raw }
+}
+
+function normalizeMapNodeName(name, pts) {
+  if (name == null) return null
+  const s = String(name).trim()
+  if (!s) return null
+  if (pts[s]) return s
+  if (s.endsWith('点')) {
+    const bare = s.slice(0, -1)
+    if (pts[bare]) return bare
+  }
+  return null
+}
+
+function bfsShortestPath(adj, start, goal) {
+  if (!start || !goal || !adj[start] || !adj[goal]) return null
+  if (start === goal) return [start]
+  const q = [[start]]
+  const seen = new Set([start])
+  while (q.length) {
+    const path = q.shift()
+    const u = path[path.length - 1]
+    for (const v of adj[u] || []) {
+      if (seen.has(v)) continue
+      const next = path.concat(v)
+      if (v === goal) return next
+      seen.add(v)
+      q.push(next)
+    }
+  }
+  return null
+}
+
+function findConnection(raw, fromName, toName) {
+  const pp = raw.find((p) => p && p.name === fromName)
+  if (!pp || !Array.isArray(pp.connections)) return null
+  return pp.connections.find((c) => c && c.name === toName) || null
+}
+
+function sampleCubic(a, c1, c2, b, n) {
+  const out = []
+  const steps = Math.max(2, n)
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps
+    const u = 1 - t
+    const x = u * u * u * a.x + 3 * u * u * t * c1.x + 3 * u * t * t * c2.x + t * t * t * b.x
+    const y = u * u * u * a.y + 3 * u * u * t * c1.y + 3 * u * t * t * c2.y + t * t * t * b.y
+    out.push({ x, y })
+  }
+  return out
+}
+
+function sampleLine(a, b, n) {
+  const out = []
+  const steps = Math.max(1, n)
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps
+    out.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t })
+  }
+  return out
+}
+
+function edgeSamples(aName, bName, pts, raw) {
+  const a = pts[aName]
+  const b = pts[bName]
+  if (!a || !b) return []
+  let con = findConnection(raw, aName, bName)
+  let reverse = false
+  if (!con) {
+    con = findConnection(raw, bName, aName)
+    reverse = !!con
+  }
+  const segLen = Math.hypot(b.x - a.x, b.y - a.y) || 1
+  const n = Math.max(8, Math.ceil(segLen / 80))
+  let samples
+  if (con && Number(con.type) === 1) {
+    // 与 CanvasView 一致：控制点相对「连接所在节点」；正向相对 A，反向相对 B 再反转
+    if (!reverse) {
+      const c1 = { x: a.x + (Number(con.x1) || 0), y: a.y + (Number(con.y1) || 0) }
+      const c2 = { x: a.x + (Number(con.x2) || 0), y: a.y + (Number(con.y2) || 0) }
+      samples = sampleCubic(a, c1, c2, b, n)
+    } else {
+      const c1 = { x: b.x + (Number(con.x1) || 0), y: b.y + (Number(con.y1) || 0) }
+      const c2 = { x: b.x + (Number(con.x2) || 0), y: b.y + (Number(con.y2) || 0) }
+      samples = sampleCubic(b, c1, c2, a, n).reverse()
+    }
+  } else {
+    samples = sampleLine(a, b, n)
+  }
+  return samples
+}
+
+function buildRoutePolyline(nodeNames, pts, raw) {
+  if (!nodeNames || nodeNames.length === 0) return []
+  if (nodeNames.length === 1) {
+    const p = pts[nodeNames[0]]
+    return p ? [{ x: p.x, y: p.y }] : []
+  }
+  const poly = []
+  for (let i = 0; i < nodeNames.length - 1; i++) {
+    const seg = edgeSamples(nodeNames[i], nodeNames[i + 1], pts, raw)
+    if (!seg.length) continue
+    if (poly.length) seg.shift() // 去重相邻段接点
+    for (const p of seg) poly.push(p)
+  }
+  return poly
+}
+
+function resampleByArcLength(poly, count) {
+  if (!poly.length) return []
+  if (poly.length === 1 || count <= 1) return [poly[0]]
+  const dist = [0]
+  for (let i = 1; i < poly.length; i++) {
+    dist[i] =
+      dist[i - 1] + Math.hypot(poly[i].x - poly[i - 1].x, poly[i].y - poly[i - 1].y)
+  }
+  const total = dist[dist.length - 1] || 1
+  const out = []
+  for (let i = 0; i < count; i++) {
+    const target = (total * i) / (count - 1)
+    let j = 1
+    while (j < dist.length && dist[j] < target) j++
+    const d0 = dist[j - 1]
+    const d1 = dist[j] || d0 + 1
+    const t = (target - d0) / (d1 - d0 || 1)
+    const a = poly[j - 1]
+    const b = poly[j] || a
+    out.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t })
+  }
+  return out
+}
+
+function fallbackTaskEnd(name, cmd, fail, extraLog) {
+  console.log(
+    `【mock车】${cmd} 模拟开始 name=${name} fallback=${extraLog || 'short'} fail=${fail}`
+  )
+  setTimeout(() => {
+    routeEnd()
+    console.log(`【mock车】${cmd} 模拟结束 fail=${fail}`)
+  }, FALLBACK_TASK_MS)
+}
+
+/** follow_back：地图 p1…p5 最短路径约 5s 动画；未知站点回退 2s 无位移（保 week 回归） */
+function startFollowBackMove(name, node) {
+  const fail = !!node.mock_fail
+  routeBegin(name, 'follow_back')
+  state.substatus = 'follow_back'
+
+  if (fail) {
+    fallbackTaskEnd(name, 'follow_back', true, 'mock_fail')
+    return
+  }
+
+  const graph = buildPathGraph(mapData)
+  const start = normalizeMapNodeName(node.start_name, graph.pts)
+  const goal = normalizeMapNodeName(node.target_name, graph.pts)
+  const hopPath = start && goal ? bfsShortestPath(graph.adj, start, goal) : null
+
+  if (!hopPath || hopPath.length === 0) {
+    fallbackTaskEnd(
+      name,
+      'follow_back',
+      false,
+      `no_path start=${node.start_name} target=${node.target_name}`
+    )
+    return
+  }
+
+  const rawPoly = buildRoutePolyline(hopPath, graph.pts, graph.raw)
+  const ticks = Math.max(2, Math.round(MOVE_DURATION_MS / MOVE_TICK_MS))
+  const samples = resampleByArcLength(rawPoly, ticks + 1)
+  if (samples.length < 2) {
+    fallbackTaskEnd(name, 'follow_back', false, 'empty_poly')
+    return
+  }
+
+  // 对齐路径起点；yaw 为弧度，沿切线
+  state.pose[0] = samples[0].x
+  state.pose[1] = samples[0].y
+  const d0x = samples[1].x - samples[0].x
+  const d0y = samples[1].y - samples[0].y
+  if (d0x !== 0 || d0y !== 0) state.pose[2] = Math.atan2(d0y, d0x)
+
+  console.log(
+    `【mock车】follow_back 路径动画 name=${name} path=${hopPath.join('→')} duration=${MOVE_DURATION_MS}ms`
+  )
+
+  let step = 0
+  clearMoveTimer()
+  // clearMoveTimer 会清空 pathPoints/vel，需重新写入
+  pathPointsForHigh = samples.map((p) => ({ x: p.x, y: p.y }))
+  state.vel = [0.3, 0, 0]
+
+  // 每 tick 最多转这么多弧度，避免弯道硬切（约 180°/s @100ms）
+  const YAW_MAX_STEP = 0.35
+  const YAW_LERP = 0.35
+
+  function shortestAngleDelta(from, to) {
+    let d = to - from
+    while (d > Math.PI) d -= Math.PI * 2
+    while (d < -Math.PI) d += Math.PI * 2
+    return d
+  }
+
+  function smoothYawToward(target) {
+    const cur = state.pose[2]
+    let delta = shortestAngleDelta(cur, target)
+    // 指数逼近 + 单步上限
+    delta *= YAW_LERP
+    if (delta > YAW_MAX_STEP) delta = YAW_MAX_STEP
+    if (delta < -YAW_MAX_STEP) delta = -YAW_MAX_STEP
+    state.pose[2] = cur + delta
+  }
+
+  moveTimer = setInterval(() => {
+    step += 1
+    if (step >= samples.length) {
+      const last = samples[samples.length - 1]
+      state.pose[0] = last.x
+      state.pose[1] = last.y
+      clearMoveTimer()
+      routeEnd()
+      console.log(
+        `【mock车】follow_back 到位 path=${hopPath.join('→')} pose=${state.pose[0].toFixed(1)},${state.pose[1].toFixed(1)}`
+      )
+      return
+    }
+    const cur = samples[step]
+    const prev = samples[step - 1]
+    state.pose[0] = cur.x
+    state.pose[1] = cur.y
+    const dx = cur.x - prev.x
+    const dy = cur.y - prev.y
+    if (dx !== 0 || dy !== 0) smoothYawToward(Math.atan2(dy, dx))
+    pathPointsForHigh = samples.slice(step).map((p) => ({ x: p.x, y: p.y }))
+    state.vel = [0.3, 0, 0]
+  }, MOVE_TICK_MS)
 }
 
 /** 模拟叉高渐变：每 200ms 向目标 pos 步进 10mm。mock_fail:true 时中途停（目标不达）。 */
@@ -126,24 +500,23 @@ function startForkSim(name, node) {
 function startTaskSim(name, node) {
   const cmd = node.cmd
   const fail = !!node.mock_fail
-  routeBegin(name, cmd)
-  state.substatus = cmd
-  if (cmd === 'head') {
-    console.log(`【mock车】head 原地旋转 ${node.angle}度 fail=${fail}`)
-    setTimeout(() => {
-      if (!fail) state.pose[2] += (Number(node.angle || 0) * Math.PI) / 180
-      routeEnd()
-      console.log(`【mock车】head 结束 pose[2]=${state.pose[2].toFixed(3)}rad fail=${fail}`)
-    }, 1000)
+  if (cmd === 'follow_back') {
+    startFollowBackMove(name, node)
     return
   }
+  if (cmd === 'head') {
+    startHeadSim(name, node)
+    return
+  }
+  routeBegin(name, cmd)
+  state.substatus = cmd
   console.log(`【mock车】${cmd} 模拟开始 name=${name} payload=${JSON.stringify(node)}`)
   setTimeout(() => {
     if (cmd === 'charge' && !fail) state.charing = true
     routeEnd()
     if (cmd === 'charge' && !fail) state.substatus = '充电中'
     console.log(`【mock车】${cmd} 模拟结束 fail=${fail}`)
-  }, 2000)
+  }, FALLBACK_TASK_MS)
 }
 
 function lowPayload() {
@@ -177,7 +550,7 @@ function highPayload() {
     vel: state.vel.join(','),
     pose: state.pose.join(','),
     laser_data: { data: [] },
-    path_points: { points: [] },
+    path_points: { points: pathPointsForHigh },
     clearances: { points: [] },
     // 与 CanvasView 一致：毫米口径（非米）
     robot_size: { width: 900, length: 2200, length_front: 1200, length_rear: 1000 }
@@ -200,11 +573,19 @@ function handleControl(action, payload) {
   switch (action) {
     case 'drive': {
       // 真车 JWebService::Drive 不切 JRoutes mode（mode 保持 Idle），仅改速度
+      // 仿真额外：按 vel 积分 pose，便于画布演示（真车不走此积分）
       const trans = Number(p.trans || 0)
       const rot = Number(p.rot || 0)
       state.speed = Number(p.speed || state.speed)
       state.substatus = trans > 0 ? '前进' : trans < 0 ? '后退' : rot !== 0 ? '转向' : '点动'
-      state.vel = [trans * (state.speed / 100), 0, rot * 0.5]
+      const vx = trans * state.speed * DRIVE_LIN_PER_SPEED // mm/s
+      const omega = rot * (DRIVE_ANG_BASE + (state.speed / 100) * DRIVE_ANG_PER_SPEED) // rad/s
+      state.vel = [vx, 0, omega]
+      if (Math.abs(vx) < 1e-6 && Math.abs(omega) < 1e-6) {
+        clearDriveTimer()
+      } else {
+        startDriveLoopIfNeeded()
+      }
       break
     }
     case 'stop':
@@ -212,6 +593,9 @@ function handleControl(action, payload) {
         clearInterval(forkTimer)
         forkTimer = null
       }
+      clearMoveTimer()
+      clearHeadTimer()
+      stopDriveMotion()
       currentRoutes = { ...DEFAULT_ROUTES }
       state.mode = 'Idle'
       state.substatus = 'Idle'
@@ -219,6 +603,8 @@ function handleControl(action, payload) {
       state.charing = false
       break
     case 'idle':
+      clearHeadTimer()
+      stopDriveMotion()
       state.mode = 'Idle'
       state.substatus = '待机'
       state.vel = [0, 0, 0]
