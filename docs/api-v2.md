@@ -71,6 +71,7 @@
 3. 下行 JSON 帧：
    - `{"type":"final","text":"前进","succeed":true,"intent":{...},"utterance":"...","audioBase64":"...","ttsEngine":"...","target":"...","intents":[...]}`（与 /api/voice/text 响应同构）
    - 识别失败：`{"type":"final","text":"","succeed":false,"errorCode":"asr_failed","utterance":"失败：识别失败",...}`
+   - 空语音：`{"type":"final","text":"","succeed":false,"errorCode":"asr_empty"}`（不播报、不执行）
 4. 文本帧 `{"event":"end"}` = PTT 松开 → 整句上传云端 ASR（超时 5s）→ final。
 
 ### 2.2 /ws/events（事件广播）

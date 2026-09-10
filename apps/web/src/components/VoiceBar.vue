@@ -252,6 +252,13 @@ function onFinal(msg: AudioFinalMessage, ws: AudioWs) {
   recognizing.value = false
   partialText.value = ''
   pttStreaming = false
+  if (msg.errorCode === 'asr_empty') {
+    if (audioWs === ws) {
+      ws.close()
+      audioWs = null
+    }
+    return
+  }
   if (msg.text) {
     showAsrInBox(msg.text)
     session.pushLog(`我说: ${msg.text}`)

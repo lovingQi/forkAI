@@ -68,7 +68,7 @@ forkAI 部署在叉车车载工控机，外部实体：
 ### 3.6 语音主链路（`app/api/routes_voice.py`）
 
 - `POST /api/voice/text`：文本入口（调试/远程），走与语音相同的 `run_utterance()`。
-- `WS /ws/audio`：首帧 JSON `{pairToken, channel}` 鉴权（失败 4401）；二进制 PCM16 缓冲至 `{"event":"end"}` → 云端整句 ASR；失败播 `fail_asr`。
+- `WS /ws/audio`：首帧 JSON `{pairToken, channel}` 鉴权（失败 4401）；二进制 PCM16 缓冲至 `{"event":"end"}` → 云端整句 ASR；超时/HTTP 失败播 `fail_asr`；空音频或空识别（`asr_empty`）静默忽略、不播报。
 - **核心函数 `run_utterance()`**（编排顺序）：
   1. cabin 通道先 `match_wake_word`：命中 → 武装 30s + TTS wake_ack + 广播 `wake_armed`；纯唤醒词**短路只应声**（ptt 通道同）。
   2. `correct_asr` 纠偏 → `parse_intent`（混合路由，可返回复合 intents 数组）。
@@ -89,7 +89,7 @@ forkAI 部署在叉车车载工控机，外部实体：
 
 ### 3.8 ASR（`app/asr/cloud.py`、`pcm_wav.py`）
 
-- **云端整句**：PTT 缓冲 PCM → WAV → SiliconFlow `/audio/transcriptions`；超时 5s 抛 ASRError，播 `fail_asr`，不回退 sherpa。失败在 core 日志打 `ASR fail reason=`（timeout / empty_transcription / http_* / empty_audio 等）及 `pcm_ms`/`peak`。
+- **云端整句**：PTT 缓冲 PCM → WAV → SiliconFlow `/audio/transcriptions`；超时 5s 抛 ASRError，播 `fail_asr`，不回退 sherpa。空音频/空识别不播报（`errorCode=asr_empty`）。失败在 core 日志打 `ASR fail reason=` 或 `ASR skip reason=`（timeout / empty_transcription / http_* / empty_audio 等）及 `pcm_ms`/`peak`。
 - **菜单**：`GET /v1/models?type=audio&sub_type=speech-to-text` 全部 id；打开下拉并行测延迟。
 - **Sherpa / CabinListener**：代码保留，PTT 与 main 不再加载/启动。
 - **实现状态**：云端 PTT 已落地。
@@ -320,7 +320,8 @@ cmd 与 JMode 处理者对应（源码 AddTask 注册）：`drive/safedrive`→J
 
 | 故障 | 降级行为 |
 |---|---|
-| 云端 ASR 超时/失败 | 播 `fail_asr`（失败：识别失败），不回退 sherpa |
+| 云端 ASR 超时/HTTP 失败 | 播 `fail_asr`（失败：识别失败），不回退 sherpa |
+| 云端 ASR 空音频/空识别 | 静默忽略，不播报、不执行 |
 | LLM 不可达 | 纯规则 NLU；复合指令只执行首个规则命中；打一次 warning 后静默 |
 | 云端 TTS 不可达 | 超时后 piper 兜底；piper 也不可用则 `engine:"mock"` audio=None → 前端 speechSynthesis |
 | piper 不可用 | 云端/缓存命中仍可播；均失败则 TTS 回退 `engine:"mock"` audio=None → 前端 speechSynthesis |

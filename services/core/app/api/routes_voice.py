@@ -275,6 +275,16 @@ async def ws_audio(ws: WebSocket):
     bus = ws.app.state.bus
     pcm_buf = bytearray()
 
+    async def skip_empty_asr(reason: str) -> None:
+        print(
+            f"[forkai-core] ASR skip reason={reason} model={current_asr_model(cfg)}",
+            flush=True,
+        )
+        await _ws_send_json(
+            ws,
+            {"type": "final", "text": "", "succeed": False, "errorCode": "asr_empty"},
+        )
+
     async def speak_asr_fail() -> dict:
         utterance = render("fail_asr")
         spoken = await synthesize(utterance, "fail", cfg)
@@ -305,8 +315,7 @@ async def ws_audio(ws: WebSocket):
     async def run_final(text: str) -> None:
         text = text.strip()
         if not text:
-            out = await speak_asr_fail()
-            await _ws_send_json(ws, {"type": "final", "text": "", **out})
+            await skip_empty_asr("empty_transcription")
             return
         bus.broadcast(
             "asr_final", {"clientId": client_id, "channel": channel, "text": text}
@@ -343,6 +352,9 @@ async def ws_audio(ws: WebSocket):
                 flush=True,
             )
             wav = pcm16_to_wav(pcm, sr)
+            if stats["bytes"] == 0:
+                await skip_empty_asr("empty_audio")
+                continue
             if not cloud_asr_enabled(cfg):
                 print("[forkai-core] ASR fail reason=disabled_or_no_key", flush=True)
                 out = await speak_asr_fail()
@@ -351,8 +363,12 @@ async def ws_audio(ws: WebSocket):
             try:
                 text = await transcribe(cfg, wav)
             except ASRError as e:
+                reason = str(e)
+                if reason in ("empty_audio", "empty_transcription"):
+                    await skip_empty_asr(reason)
+                    continue
                 print(
-                    f"[forkai-core] ASR fail reason={e} model={model} "
+                    f"[forkai-core] ASR fail reason={reason} model={model} "
                     f"pcm_ms={stats['ms']} peak={stats['peak']}",
                     flush=True,
                 )

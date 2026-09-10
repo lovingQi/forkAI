@@ -88,7 +88,8 @@ core → auth(Bearer) → cabin 通道先匹配唤醒词（命中→arm_wake+TTS
 前端 → WS 连接 → 首帧 JSON {pairToken,channel}（失败 4401 关闭；channel 忽略，一律 ptt）
      → 二进制帧 PCM16 16kHz mono 缓冲
      → {"event":"end"} → 打成 WAV → 云端 /audio/transcriptions（超时 5s）
-     → 失败则播 fail_asr 并回 final errorCode=asr_failed
+     → 空音频/空识别则静默回 final errorCode=asr_empty（不播 fail_asr）
+     → 超时/HTTP 失败则播 fail_asr 并回 final errorCode=asr_failed
      → 成功则 broadcast asr_final → run_utterance → 回发 {"type":"final",...}
 ```
 
