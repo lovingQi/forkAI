@@ -53,7 +53,11 @@
     </div>
 
     <div v-if="showText" class="row">
-      <el-input v-model="debugText" placeholder="例如：前进 / 玖物，玖物 / 电量多少" @keyup.enter="sendDebug" />
+      <el-input
+        v-model="debugText"
+        :placeholder="textPlaceholder"
+        @keyup.enter="sendDebug"
+      />
       <el-button type="primary" @click="sendDebug">发送</el-button>
     </div>
 
@@ -69,7 +73,7 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useSessionStore } from '@/stores/session'
 import { getPairToken, getVoiceProviders, setVoiceProviders, voiceStop, type VoiceProviderItem } from '@/api/http'
@@ -85,6 +89,16 @@ const asrModel = ref('')
 const llmModel = ref('')
 const asrItems = ref<VoiceProviderItem[]>([])
 const llmItems = ref<VoiceProviderItem[]>([])
+const textPlaceholder = computed(() => {
+  if (pttDown.value) return '聆听中…'
+  if (recognizing.value) return '识别中…'
+  return '例如：前进 / 玖物，玖物 / 电量多少'
+})
+
+function showAsrInBox(text: string) {
+  showText.value = true
+  debugText.value = text
+}
 
 let capture: MicCapture | null = null
 let audioWs: AudioWs | null = null
@@ -198,7 +212,10 @@ async function onLlmChange(id: string) {
 function onFinal(msg: AudioFinalMessage) {
   recognizing.value = false
   partialText.value = ''
-  if (msg.text) session.pushLog(`我说: ${msg.text}`)
+  if (msg.text) {
+    showAsrInBox(msg.text)
+    session.pushLog(`我说: ${msg.text}`)
+  }
   if (msg.utterance) session.lastUtterance = msg.utterance
   if (msg.intent?.name) session.lastIntent = msg.intent.name
   audioWs?.close()
@@ -207,7 +224,10 @@ function onFinal(msg: AudioFinalMessage) {
 
 async function openAudio(): Promise<boolean> {
   audioWs = new AudioWs(
-    (t) => (partialText.value = t),
+    (t) => {
+      partialText.value = t
+      if (t) showAsrInBox(t)
+    },
     onFinal,
     () => {
       recognizing.value = false
@@ -245,6 +265,8 @@ async function startPtt() {
   pttDown.value = true
   session.listening = true
   partialText.value = ''
+  debugText.value = ''
+  showText.value = true
   const ok = await openAudio()
   if (!ok) {
     pttDown.value = false
