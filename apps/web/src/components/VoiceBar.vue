@@ -65,7 +65,10 @@
       {{ partialText || '聆听中…' }}
     </div>
     <div v-else-if="recognizing" class="partial">识别中…</div>
-    <div class="utter">{{ session.lastUtterance || '等待指令…' }}</div>
+    <div class="utter">
+      <span>{{ session.lastUtterance || '等待指令…' }}</span>
+      <span v-if="session.lastTtsEngine" class="tts-engine">{{ session.lastTtsEngine }}</span>
+    </div>
     <div class="logs">
       <div v-for="(l, i) in session.logs.slice(0, 8)" :key="i">{{ l }}</div>
     </div>
@@ -463,6 +466,15 @@ onBeforeUnmount(() => {
   font-weight: 600;
   color: #111827;
   min-height: 24px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.tts-engine {
+  font-size: 12px;
+  font-weight: 500;
+  color: #6b7280;
 }
 .logs {
   font-size: 12px;

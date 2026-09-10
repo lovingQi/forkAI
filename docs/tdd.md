@@ -96,7 +96,7 @@ forkAI 部署在叉车车载工控机，外部实体：
 
 ### 3.9 TTS 与话术（`app/tts/service.py`、`cloud.py`、`cache.py`、`prewarm.py`、`piper.py`、`app/speak.py`）
 
-- **合成链**：本地缓存 → 云端 CosyVoice2（超时 1.5s，WAV 头修正）→ piper CLI 兜底 → mock（audio=None，前端 speechSynthesis）。piper 路径保留拉丁字母→中文读音字转写；云端收原文。无提示音、无前导静音。
+- **合成链**：本地缓存 → 云端 CosyVoice2（超时 5s，WAV 头修正）→ piper CLI 兜底 → mock（audio=None，前端 speechSynthesis）。每次播报 core 日志与前端记录 `engine`（cloud / cloud-cache / piper / mock）。piper 路径保留拉丁字母→中文读音字转写；云端收原文。无提示音、无前导静音。
 - **speak.py**：话术渲染（`config/utterances.zh-CN.json`，含 `fail_asr`，缺失占位符原样保留）+ 播报目标路由（wake→vehicle；query→speak.query；cabin/ptt→对应配置）。
 - **实现状态**：云端增强已落地；音色/音量真机听感待验（R-08）。
 
@@ -151,7 +151,7 @@ forkAI 部署在叉车车载工控机，外部实体：
 
 - **路由**：hash 路由（`App.vue:70`）：`#/flow` → FlowEditor，否则 Dashboard；未配对显示配对门（6 位码）。头部常驻：车端连接/配对/现场剩余分钟 + 全局"停"按钮。
 - **Dashboard.vue**：左 CanvasView（地图+激光+位姿+路径+车体轮廓画布，右键点"到达 X"→ `control('autodrive')`）；右 StatusPanel（车况/实时数据/叉车信息/IO 位）+ VoiceBar + 任务流入口。
-- **VoiceBar.vue**：PTT 按住说话（鼠标/触摸，或按住空格、松开结束；INPUT/TEXTAREA/选择框内不抢空格）；麦克风常驻复用，按住期间先本地缓冲再上传，松手 flush 尾巴；ASR/LLM 下拉（打开时测延迟且不覆盖当前选中，改选立即写入 runtime_models.yaml，旧探测请求作废）；停止；文本调试（仅 ptt，ASR 识别结果写入该输入框，不自动发送）；识别中/话术/最近 8 条日志；麦不可用降级文本输入。常听与车载通道已去掉。
+- **VoiceBar.vue**：PTT 按住说话（鼠标/触摸，或按住空格、松开结束；INPUT/TEXTAREA/选择框内不抢空格）；麦克风常驻复用，按住期间先本地缓冲再上传，松手 flush 尾巴；ASR/LLM 下拉（打开时测延迟且不覆盖当前选中，改选立即写入 runtime_models.yaml，旧探测请求作废）；停止；文本调试（仅 ptt，ASR 识别结果写入该输入框，不自动发送）；识别中/话术（旁注 TTS 引擎）/最近 8 条日志；麦不可用降级文本输入。常听与车载通道已去掉。
 - **FlowEditor.vue**（457 行）：vue-flow 画布，6 种节点，拖拽连线（每节点每类出边限 1 条，点击边切 success/fail），NodePanel 按 `/api/tasks/schemas` 动态渲染参数表单（required/safety 标记），CRUD + 执行/暂停/继续/取消 + 引擎状态标签；节点色环随 `flow_event` 更新；布局存 `flow.ui.positions`；引擎忙时全编辑禁用；**不支持编辑 parallel_groups 和 options**（保存只序列化 nodes/edges/ui，含并行组的流再保存会丢该字段，R-05）。
 - **stores/session.ts**：配对/现场/事件总线状态；TTS 用**常驻 AudioContext** 播 base64（避免 new Audio 重开流吃开头字，配合服务端前导静音垫），失败回退 speechSynthesis；`asr_final` 触发 TTS 打断；`flow_event` 更新流程状态。
 - **stores/robot.ts**：high/low WS 解析进车况 state（pose/vel/laser/path/robot_size/battery/alarm/current_routes/fork_info/IO）。

@@ -74,7 +74,7 @@ async def synthesize_cloud(cfg: dict, text: str) -> bytes:
     base_url = str(cloud.get("base_url") or "").rstrip("/")
     model = str(cloud.get("model") or "")
     voice = str(cloud.get("voice") or "anna")
-    timeout_s = float(cloud.get("timeout_s", 1.5))
+    timeout_s = float(cloud.get("timeout_s", 5))
     res = await _client().post(
         f"{base_url}/audio/speech",
         headers={"Authorization": f"Bearer {api_key}"},

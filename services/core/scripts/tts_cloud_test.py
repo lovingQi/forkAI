@@ -72,7 +72,7 @@ async def main() -> int:
     cloud3["base_url"] = "http://127.0.0.1:9"
     cfg3["tts"]["cloud"] = cloud3
     cfg3["tts"]["cache_dir"] = tempfile.mkdtemp(prefix="forkai_tts_miss_")
-    timeout_s = float(cloud3.get("timeout_s", 1.5))
+    timeout_s = float(cloud3.get("timeout_s", 5))
     t0 = time.monotonic()
     spoken3 = await synthesize("好的，后退", "ok", cfg3)
     elapsed = time.monotonic() - t0

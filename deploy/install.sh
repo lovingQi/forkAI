@@ -285,7 +285,7 @@ tts:
     base_url: https://api.siliconflow.cn/v1
     model: FunAudioLLM/CosyVoice2-0.5B
     voice: anna
-    timeout_s: 1.5
+    timeout_s: 5
     api_key_env: FORKAI_TTS_API_KEY
   cache_dir: data/tts_cache
   cache_max_files: 5000

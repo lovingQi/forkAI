@@ -17,7 +17,7 @@ forkAI 是叉车的全离线中文语音控制与任务流编排系统。V2 采�
 
 - ASR：PTT 松手后整句上传 SiliconFlow `/audio/transcriptions`（默认 Qwen3-ASR-1.7B，界面可选当前列出的全部识别模型）；超时 5s 播「失败：识别失败」，空音频或空识别静默忽略，不回退 sherpa。
 - NLU：混合架构——规则正则优先；规则未命中或命中后残余文本仍含意图（复合指令）→ 云端大模型（默认官方 DeepSeek-flash，界面可选 chat / v4-pro 与 SiliconFlow V3.2 / V3 / Qwen3.5-27B / GLM-5.1）；LLM 输出经意图白名单校验，首个数值槽位以规则换算为准；LLM 不可达自动降级纯规则。
-- TTS：云端 CosyVoice2 + 本地缓存，piper 兜底。
+- TTS：云端 CosyVoice2 + 本地缓存，超时 5s，piper 兜底。
 
 ### 2.2 六任务
 

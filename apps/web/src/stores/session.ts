@@ -14,6 +14,14 @@ import {
 } from '@/api/http'
 import { EventWs } from '@/api/ws'
 
+function ttsEngineLabel(engine: string, hasAudio: boolean): string {
+  if (!hasAudio || engine === 'mock') return '浏览器朗读'
+  if (engine === 'cloud') return '云端 CosyVoice'
+  if (engine === 'cloud-cache') return '云端缓存'
+  if (engine === 'piper') return '本地 piper'
+  return engine || '未知'
+}
+
 function speakBrowser(text: string, style: string) {
   if (!('speechSynthesis' in window)) return
   const u = new SpeechSynthesisUtterance(text)
@@ -58,9 +66,9 @@ async function playBase64Audio(audioBase64: string, text: string, style: string)
     }
     currentSrc = src
     src.start()
-    console.log('[forkai] 走 piper 音频播放(AudioContext)')
+    console.log('[forkai] TTS 音频播放(AudioContext)')
   } catch (e) {
-    console.warn('[forkai] piper 音频播放失败，回退 speechSynthesis:', e)
+    console.warn('[forkai] TTS 音频播放失败，回退 speechSynthesis:', e)
     speakBrowser(text, style)
   }
 }
@@ -92,6 +100,7 @@ export const useSessionStore = defineStore('session', {
     siteHolderId: '' as string,
     iAmHolder: false,
     lastUtterance: '',
+    lastTtsEngine: '',
     lastIntent: '',
     listening: false,
     wakeArmed: false,
@@ -118,13 +127,20 @@ export const useSessionStore = defineStore('session', {
       if (msg.type === 'tts') {
         const text = msg.payload?.text || ''
         this.lastUtterance = text
-        this.pushLog(`TTS: ${text}`)
+        const audioBase64 = msg.payload?.audioBase64
+        const engineLabel = ttsEngineLabel(String(msg.payload?.ttsEngine || ''), !!audioBase64)
+        this.lastTtsEngine = engineLabel
+        this.pushLog(`TTS[${engineLabel}]: ${text}`)
         const target = msg.payload?.target || 'device'
         if (target === 'device' || target === 'both') {
-          const audioBase64 = msg.payload?.audioBase64
           const style = msg.payload?.style || 'ok'
-          console.log('[forkai] tts 事件: text=%s audioBase64长度=%d', text, (audioBase64 || '').length)
-          // 有真实音频（piper）优先播放；否则回退浏览器 speechSynthesis
+          console.log(
+            '[forkai] tts 事件: engine=%s text=%s audioBase64长度=%d',
+            engineLabel,
+            text,
+            (audioBase64 || '').length
+          )
+          // 有真实音频优先播放；否则回退浏览器 speechSynthesis
           if (audioBase64) {
             playBase64Audio(audioBase64, text, style)
           } else {

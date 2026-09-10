@@ -36,19 +36,28 @@ def _cloud_ids(cfg: dict) -> tuple[str, str]:
     return str(cloud.get("model") or ""), str(cloud.get("voice") or "anna")
 
 
+def _log_tts(spoken: dict) -> dict:
+    print(
+        f"[forkai-core] TTS engine={spoken.get('engine')} "
+        f"voice={spoken.get('voice')} chars={len(spoken.get('text') or '')}",
+        flush=True,
+    )
+    return spoken
+
+
 async def synthesize(text: str, style: str, cfg: dict) -> dict:
     if not (text or "").strip():
-        return _mock(text, style)
+        return _log_tts(_mock(text, style))
     model, voice = _cloud_ids(cfg)
     key = cache_key(model, voice, text)
     cached = cache_get(cfg, key)
     if cached:
-        return _ok(text, style, voice, "cloud-cache", cached)
+        return _log_tts(_ok(text, style, voice, "cloud-cache", cached))
     if cloud_enabled(cfg):
         try:
             wav_bytes = await synthesize_cloud(cfg, text)
             cache_put(cfg, key, wav_bytes)
-            return _ok(text, style, voice, "cloud", wav_bytes)
+            return _log_tts(_ok(text, style, voice, "cloud", wav_bytes))
         except Exception as e:
-            print(f"[forkai-core] TTS 云端失败，回退 piper: {e}")
-    return await synthesize_piper(text, style, cfg)
+            print(f"[forkai-core] TTS 云端失败，回退 piper: {e}", flush=True)
+    return _log_tts(await synthesize_piper(text, style, cfg))
