@@ -322,13 +322,13 @@ fork:
 llm:
   enabled: true
   timeout_s: 10
-  model: deepseek-ai/DeepSeek-V3.2
+  model: deepseek-flash
   siliconflow:
     base_url: https://api.siliconflow.cn/v1
     api_key_env: FORKAI_TTS_API_KEY
   deepseek:
     base_url: https://api.deepseek.com/v1
-    model: deepseek-chat
+    model: deepseek-flash
     api_key_env: FORKAI_DEEPSEEK_API_KEY
 taskflow:
   node_timeout_s: 120

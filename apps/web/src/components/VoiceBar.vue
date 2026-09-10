@@ -69,7 +69,7 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useSessionStore } from '@/stores/session'
 import { getPairToken, getVoiceProviders, setVoiceProviders, voiceStop, type VoiceProviderItem } from '@/api/http'
@@ -89,8 +89,9 @@ const llmItems = ref<VoiceProviderItem[]>([])
 let capture: MicCapture | null = null
 let audioWs: AudioWs | null = null
 let micBroken = false
-let probing = false
-let hydrating = false
+let ignoreChange = false
+let loadSeq = 0
+let loadAbort: AbortController | null = null
 
 function optionLabel(it: VoiceProviderItem) {
   if (it.latencyMs != null) return `${it.name}（${it.latencyMs}ms）`
@@ -98,34 +99,86 @@ function optionLabel(it: VoiceProviderItem) {
   return it.name
 }
 
+function shortName(id: string) {
+  return id.split('/').pop() || id
+}
+
+function ensureSelected(items: VoiceProviderItem[], selected: string): VoiceProviderItem[] {
+  if (!selected || items.some((it) => it.id === selected)) return items
+  return [{ id: selected, name: shortName(selected), latencyMs: null, error: null }, ...items]
+}
+
+function mergeLatencies(current: VoiceProviderItem[], incoming: VoiceProviderItem[]): VoiceProviderItem[] {
+  const byId = new Map<string, VoiceProviderItem>()
+  for (const it of current) byId.set(it.id, { ...it })
+  for (const it of incoming) {
+    const prev = byId.get(it.id)
+    byId.set(it.id, prev ? { ...prev, name: it.name || prev.name, latencyMs: it.latencyMs, error: it.error } : { ...it })
+  }
+  const out: VoiceProviderItem[] = []
+  const seen = new Set<string>()
+  for (const it of incoming) {
+    const merged = byId.get(it.id)
+    if (merged && !seen.has(it.id)) {
+      out.push(merged)
+      seen.add(it.id)
+    }
+  }
+  for (const it of current) {
+    if (!seen.has(it.id)) {
+      out.push(byId.get(it.id)!)
+      seen.add(it.id)
+    }
+  }
+  return out
+}
+
+async function withIgnoreChange(fn: () => void) {
+  ignoreChange = true
+  try {
+    fn()
+    await nextTick()
+  } finally {
+    ignoreChange = false
+  }
+}
+
 async function loadProviders(probe: boolean) {
   if (!getPairToken()) return
-  if (probe) probing = true
-  hydrating = true
+  loadAbort?.abort()
+  loadAbort = new AbortController()
+  const seq = ++loadSeq
+  const signal = loadAbort.signal
   try {
-    const data = await getVoiceProviders(probe)
-    asrItems.value = data.asr.items || []
-    llmItems.value = data.llm.items || []
-    if (data.asr.selected) asrModel.value = data.asr.selected
-    if (data.llm.selected) llmModel.value = data.llm.selected
+    const data = await getVoiceProviders(probe, signal)
+    if (seq !== loadSeq) return
+    await withIgnoreChange(() => {
+      if (probe) {
+        asrItems.value = ensureSelected(mergeLatencies(asrItems.value, data.asr.items || []), asrModel.value)
+        llmItems.value = ensureSelected(mergeLatencies(llmItems.value, data.llm.items || []), llmModel.value)
+      } else {
+        asrItems.value = ensureSelected(data.asr.items || [], data.asr.selected || asrModel.value)
+        llmItems.value = ensureSelected(data.llm.items || [], data.llm.selected || llmModel.value)
+        if (data.asr.selected) asrModel.value = data.asr.selected
+        if (data.llm.selected) llmModel.value = data.llm.selected
+      }
+    })
   } catch (e: any) {
+    if (seq !== loadSeq || signal.aborted || e?.code === 'ERR_CANCELED' || e?.name === 'CanceledError') return
     if (probe) ElMessage.warning(e?.message || '延迟探测失败')
-  } finally {
-    probing = false
-    hydrating = false
   }
 }
 
 function onAsrVisible(open: boolean) {
-  if (open && !probing) void loadProviders(true)
+  if (open) void loadProviders(true)
 }
 
 function onLlmVisible(open: boolean) {
-  if (open && !probing) void loadProviders(true)
+  if (open) void loadProviders(true)
 }
 
 async function onAsrChange(id: string) {
-  if (hydrating) return
+  if (ignoreChange || !id) return
   try {
     await setVoiceProviders({ asrModel: id })
   } catch (e: any) {
@@ -134,7 +187,7 @@ async function onAsrChange(id: string) {
 }
 
 async function onLlmChange(id: string) {
-  if (hydrating) return
+  if (ignoreChange || !id) return
   try {
     await setVoiceProviders({ llmModel: id })
   } catch (e: any) {
@@ -280,6 +333,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  loadAbort?.abort()
   window.removeEventListener('keydown', onSpaceDown)
   window.removeEventListener('keyup', onSpaceUp)
   window.removeEventListener('blur', onWindowBlur)

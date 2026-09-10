@@ -82,7 +82,7 @@ forkAI 部署在叉车车载工控机，外部实体：
 
 - **规则层（rules.py）**：`RULES` 数组先匹配先赢，顺序有互斥设计（CONFIRM/CANCEL > FLOW_* > STOP > TASK_HEAD > TURN > FORK > SPEED > TASK_* > DOCK > GOTO > QUERY）。单位换算（毫米/厘米/米）、`掉头`=180°、站点名保真。含 **ASR_CORRECTIONS** 同音误识别纠偏表（长词优先）与**唤醒词同音字等价组**字符类匹配。
 - **混合路由（router.py）**：规则命中且残余无意图 → 直接返回；残余有意图 → compound 交 LLM 拆分；规则 UNKNOWN → 交 LLM。LLM 输出做 `INTENT_NAMES` 白名单校验 + 关键 slot 类型校验（`_slots_sane`，防 0.5B 硬映射）；LLM 首意图数值 slot 用规则解析值覆盖（防单位换算错）。**LLM 全废时降级**：unknown→`[UNKNOWN]`；compound→只执行首个规则命中（部分执行）。
-- **LLM 客户端（llm.py）**：云端 OpenAI 兼容 `/chat/completions`，temperature=0、max_tokens=256、10s 超时、`enable_thinking=false`；剥 ```json 围栏、结构校验、≤3 项；不可达打一次 warning 后静默降级。菜单：官方 DeepSeek-chat、DeepSeek-V3.2、DeepSeek-V3、Qwen3.5-27B、GLM-5.1。
+- **LLM 客户端（llm.py）**：云端 OpenAI 兼容 `/chat/completions`，temperature=0、max_tokens=256、10s 超时、`enable_thinking=false`；剥 ```json 围栏、结构校验、≤3 项；不可达打一次 warning 后静默降级。菜单：官方 DeepSeek-flash（默认）/ chat / v4-pro，以及 SiliconFlow DeepSeek-V3.2、V3、Qwen3.5-27B、GLM-5.1。
 - **意图全集**：34 个意图名（`prompts.py` INTENT_NAMES；含 e6011ae 新增 QUERY_STATUS）。
 - **设计要点**：LLM 输出永远过白名单与类型校验——概率模型不直接产生可执行指令。
 - **实现状态**：已完成；黄金语料 75 条 + LLM 直测（含人工评估项）。
@@ -151,7 +151,7 @@ forkAI 部署在叉车车载工控机，外部实体：
 
 - **路由**：hash 路由（`App.vue:70`）：`#/flow` → FlowEditor，否则 Dashboard；未配对显示配对门（6 位码）。头部常驻：车端连接/配对/现场剩余分钟 + 全局"停"按钮。
 - **Dashboard.vue**：左 CanvasView（地图+激光+位姿+路径+车体轮廓画布，右键点"到达 X"→ `control('autodrive')`）；右 StatusPanel（车况/实时数据/叉车信息/IO 位）+ VoiceBar + 任务流入口。
-- **VoiceBar.vue**：PTT 按住说话（鼠标/触摸，或按住空格、松开结束；INPUT/TEXTAREA/选择框内不抢空格）；ASR/LLM 下拉（打开时测延迟，改选写入 runtime_models.yaml）；停止；文本调试（仅 ptt）；识别中/话术/最近 8 条日志；麦不可用降级文本输入。常听与车载通道已去掉。
+- **VoiceBar.vue**：PTT 按住说话（鼠标/触摸，或按住空格、松开结束；INPUT/TEXTAREA/选择框内不抢空格）；ASR/LLM 下拉（打开时测延迟且不覆盖当前选中，改选立即写入 runtime_models.yaml，旧探测请求作废）；停止；文本调试（仅 ptt）；识别中/话术/最近 8 条日志；麦不可用降级文本输入。常听与车载通道已去掉。
 - **FlowEditor.vue**（457 行）：vue-flow 画布，6 种节点，拖拽连线（每节点每类出边限 1 条，点击边切 success/fail），NodePanel 按 `/api/tasks/schemas` 动态渲染参数表单（required/safety 标记），CRUD + 执行/暂停/继续/取消 + 引擎状态标签；节点色环随 `flow_event` 更新；布局存 `flow.ui.positions`；引擎忙时全编辑禁用；**不支持编辑 parallel_groups 和 options**（保存只序列化 nodes/edges/ui，含并行组的流再保存会丢该字段，R-05）。
 - **stores/session.ts**：配对/现场/事件总线状态；TTS 用**常驻 AudioContext** 播 base64（避免 new Audio 重开流吃开头字，配合服务端前导静音垫），失败回退 speechSynthesis；`asr_final` 触发 TTS 打断；`flow_event` 更新流程状态。
 - **stores/robot.ts**：high/low WS 解析进车况 state（pose/vel/laser/path/robot_size/battery/alarm/current_routes/fork_info/IO）。

@@ -1,2 +1,2 @@
 asr_model: XingChenAGI/XingChenASR-V3.2-Ultra
-llm_model: deepseek-ai/DeepSeek-V3.2
+llm_model: deepseek-chat

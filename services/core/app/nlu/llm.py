@@ -15,10 +15,12 @@ from .prompts import SYSTEM_PROMPT
 _FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
 
 LLM_CATALOG = [
+    {"id": "deepseek-flash", "name": "DeepSeek-flash（官方，默认）", "provider": "deepseek"},
     {"id": "deepseek-chat", "name": "DeepSeek-chat（官方）", "provider": "deepseek"},
+    {"id": "deepseek-v4-pro", "name": "DeepSeek-v4-pro（官方）", "provider": "deepseek"},
     {
         "id": "deepseek-ai/DeepSeek-V3.2",
-        "name": "DeepSeek-V3.2（默认）",
+        "name": "DeepSeek-V3.2",
         "provider": "siliconflow",
     },
     {"id": "deepseek-ai/DeepSeek-V3", "name": "DeepSeek-V3", "provider": "siliconflow"},
@@ -30,7 +32,7 @@ LLM_CATALOG_IDS = {item["id"] for item in LLM_CATALOG}
 
 
 def current_llm_model(cfg: dict) -> str:
-    return str((cfg.get("llm") or {}).get("model") or "deepseek-ai/DeepSeek-V3.2")
+    return str((cfg.get("llm") or {}).get("model") or "deepseek-flash")
 
 
 def catalog_item(model_id: str) -> dict | None:
@@ -52,7 +54,7 @@ def resolve_llm(cfg: dict, model_id: str | None = None) -> tuple[str, str, str] 
         env_name = str(sub.get("api_key_env") or "FORKAI_DEEPSEEK_API_KEY")
         key = os.environ.get(env_name, "").strip()
         url = str(sub.get("base_url") or "https://api.deepseek.com/v1").rstrip("/")
-        model = str(sub.get("model") or "deepseek-chat")
+        model = mid
     else:
         sub = llm_cfg.get("siliconflow") or {}
         env_name = str(sub.get("api_key_env") or "FORKAI_TTS_API_KEY")
@@ -82,11 +84,11 @@ class LLMClient:
             return None
         return self._parse(content)
 
-    async def raw_content(self, text: str, model_id: str | None = None) -> str | None:
+    async def _chat(self, text: str, model_id: str | None = None) -> tuple[str | None, str | None]:
         ep = resolve_llm(self._cfg, model_id)
         if ep is None:
             self._warn_once("[forkai-core] llm 未配置 key，降级纯规则 NLU")
-            return None
+            return None, "未配置key"
         base_url, api_key, model = ep
         body: dict = {
             "model": model,
@@ -107,22 +109,39 @@ class LLMClient:
                 json=body,
                 timeout=self._timeout,
             )
-            content = res.json()["choices"][0]["message"]["content"]
-        except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as e:
+        except httpx.TimeoutException:
+            self._warn_once("[forkai-core] llm 超时，降级纯规则 NLU")
+            return None, "超时"
+        except httpx.HTTPError as e:
             self._warn_once(f"[forkai-core] llm 不可达，降级纯规则 NLU: {e}")
-            return None
+            return None, "失败"
+        if res.status_code == 401:
+            self._warn_once("[forkai-core] llm 401，官方 key 无效")
+            return None, "key无效"
+        if not 200 <= res.status_code < 300:
+            self._warn_once(f"[forkai-core] llm HTTP {res.status_code}")
+            return None, f"HTTP{res.status_code}"
+        try:
+            content = res.json()["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError, ValueError) as e:
+            self._warn_once(f"[forkai-core] llm 输出无法解析: {e}")
+            return None, "失败"
+        return content, None
+
+    async def raw_content(self, text: str, model_id: str | None = None) -> str | None:
+        content, _err = await self._chat(text, model_id)
         return content
 
     async def probe_model(self, model_id: str) -> dict:
         item = catalog_item(model_id) or {"id": model_id, "name": model_id}
         t0 = time.perf_counter()
-        content = await self.raw_content("前进", model_id)
+        content, err = await self._chat("前进", model_id)
         if content is None:
             return {
                 "id": model_id,
                 "name": item["name"],
                 "latencyMs": None,
-                "error": "超时" if resolve_llm(self._cfg, model_id) else "未配置key",
+                "error": err or "失败",
             }
         ms = int((time.perf_counter() - t0) * 1000)
         return {"id": model_id, "name": item["name"], "latencyMs": ms, "error": None}

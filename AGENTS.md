@@ -9,7 +9,7 @@
 ## 启动与停止
 
 - 一键启动 V2：`./start-v2.sh`（幂等，日志在 `/tmp/forkai-v2/`）。
-- 云端 TTS/ASR/SiliconFlow LLM 需先 `export FORKAI_TTS_API_KEY=...`；官方 DeepSeek 另需 `export FORKAI_DEEPSEEK_API_KEY=...`。未设置 TTS key 时 TTS 回退 piper，ASR 报识别失败。
+- 云端 TTS/ASR/SiliconFlow LLM 需先 `export FORKAI_TTS_API_KEY=...`；官方 DeepSeek 另需 `export FORKAI_DEEPSEEK_API_KEY=...`（也可写在 gitignore 的 `services/core/config/secrets.yaml`，仅当环境变量为空时注入）。未设置 TTS key 时 TTS 回退 piper，ASR 报识别失败。
 - 前端热更新：`npm run dev:web`（vite :5173，代理到 :19000）。
 - 入口：http://127.0.0.1:19000/（core 静态托管 apps/web/dist）。
 - 停止：`pkill -f 'mock-jarvis/src/index.js'; pkill -f 'uvicorn app.main:app'`。

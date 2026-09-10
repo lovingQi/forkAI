@@ -8,7 +8,7 @@
 |------|------|
 | 总体架构 | 方案B：Python FastAPI 统一后端（forkai-core），替代 voice-gateway + speech |
 | ASR | PTT 整句上传 SiliconFlow（默认 Qwen3-ASR-1.7B），超时 5s 报识别失败，不回退 sherpa |
-| NLP | 混合架构：规则优先 + 云端大模型（默认 DeepSeek-V3.2；可选官方 DeepSeek-chat / V3 / Qwen3.5-27B / GLM-5.1） |
+| NLP | 混合架构：规则优先 + 云端大模型（默认官方 DeepSeek-flash；可选 chat / v4-pro 与 SiliconFlow V3.2 / V3 / Qwen3.5-27B / GLM-5.1） |
 | TTS | 复用 piper + zh_CN-huayan-medium，subprocess 调用 |
 | 货叉控制 | 完整升降控制，通过 jarvis route 格式下发（focklift: pos/wait/tolerance） |
 | 智能绕障 | 下发绕障指令给车端程序，forkAI 不直接处理绕障逻辑 |

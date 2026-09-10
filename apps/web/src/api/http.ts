@@ -126,10 +126,11 @@ export type VoiceProviderItem = {
   error: string | null
 }
 
-export async function getVoiceProviders(probe = false) {
+export async function getVoiceProviders(probe = false, signal?: AbortSignal) {
   const { data } = await http.get('/voice/providers', {
     params: probe ? { probe: 1 } : {},
-    timeout: probe ? 20000 : 10000
+    timeout: probe ? 20000 : 10000,
+    signal
   })
   return data as {
     asr: { selected: string; items: VoiceProviderItem[] }

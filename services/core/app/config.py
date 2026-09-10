@@ -9,6 +9,7 @@
 - FORKAI_DEEPSEEK_API_KEY  官方 DeepSeek Key（不在此处覆盖 yaml）
 
 界面所选 ASR/LLM 模型写在 config/runtime_models.yaml，启动时合并进 cfg。
+本地密钥写在 config/secrets.yaml（gitignore），仅当对应环境变量为空时注入。
 """
 import os
 from pathlib import Path
@@ -18,9 +19,26 @@ import yaml
 CORE_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG_PATH = CORE_ROOT / "config" / "core.config.yaml"
 RUNTIME_MODELS_PATH = CORE_ROOT / "config" / "runtime_models.yaml"
+SECRETS_PATH = CORE_ROOT / "config" / "secrets.yaml"
+
+
+def _apply_secrets() -> None:
+    if not SECRETS_PATH.is_file():
+        return
+    with open(SECRETS_PATH, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    if not isinstance(data, dict):
+        return
+    for k, v in data.items():
+        if not isinstance(k, str) or not k or v is None:
+            continue
+        if os.environ.get(k, "").strip():
+            continue
+        os.environ[k] = str(v).strip()
 
 
 def load_config() -> dict:
+    _apply_secrets()
     config_path = os.environ.get("FORKAI_CORE_CONFIG", str(DEFAULT_CONFIG_PATH))
     with open(config_path, "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)

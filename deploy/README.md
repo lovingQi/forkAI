@@ -37,7 +37,7 @@ sudo JARVIS_BASE_URL=http://127.0.0.1:10000 bash deploy/install.sh
 | `LLM_PORT` | `19002` | llm 侧车端口（仅本机） |
 | `VEHICLE_ID` | `fork-01` | 车辆编号 |
 | `TTS_API_KEY` | 空 | 写入 systemd `FORKAI_TTS_API_KEY`（SiliconFlow，TTS/ASR/云端 LLM）；空则 TTS 回退 piper、ASR 报识别失败 |
-| `DEEPSEEK_API_KEY` | 空 | 写入 systemd `FORKAI_DEEPSEEK_API_KEY`（官方 DeepSeek-chat） |
+| `DEEPSEEK_API_KEY` | 空 | 写入 systemd `FORKAI_DEEPSEEK_API_KEY`（官方 DeepSeek-flash） |
 | `NODE_VER` | `v20.18.1` | Node 版本（前端构建用） |
 | `PIP_INDEX` | 阿里云镜像 | pip 源，可改 |
 | `LLAMA_VER` | `b10256` | llama.cpp 版本 |
