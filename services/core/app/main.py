@@ -15,7 +15,6 @@ from fastapi.staticfiles import StaticFiles
 
 from .api import routes_flows, routes_pair, routes_robot, routes_site, routes_voice, ws_proxy
 from .api.deps import UnpairedError
-from .asr.capture import CabinListener
 from .config import load_config
 from .events import EventBus
 from .executor import IntentExecutor
@@ -26,6 +25,7 @@ from .safety.watchdog import MotionWatchdog
 from .session.manager import SessionManager
 from .taskflow.engine import FlowEngine
 from .taskflow.store import FlowStore
+from .asr.cloud import close_asr_client
 from .tts.cloud import close_client as close_tts_cloud
 from .tts.prewarm import prewarm
 
@@ -51,7 +51,6 @@ watchdog = MotionWatchdog(
 )
 executor = IntentExecutor(cfg, sessions, jarvis, watchdog)
 llm = LLMClient(cfg)
-cabin_listener = CabinListener(app)
 alarm_monitor = AlarmMonitor(app)
 flow_store = FlowStore()
 flow_engine = FlowEngine(cfg, flow_store, jarvis, bus)
@@ -100,7 +99,6 @@ async def _startup_log():
         f"[forkai-core] http://{cfg['server']['host']}:{cfg['server']['port']} "
         f"vehicle={cfg['vehicleId']} jarvis={cfg['jarvis']['baseUrl']}"
     )
-    await cabin_listener.start()
     await alarm_monitor.start()
     await flow_engine.restore_snapshot()
     tts_cfg = cfg.get("tts") or {}
@@ -117,9 +115,9 @@ async def _shutdown():
     if _prewarm_task is not None:
         _prewarm_task.cancel()
         _prewarm_task = None
-    await cabin_listener.stop()
     await alarm_monitor.stop()
     await flow_engine.shutdown()
     await llm.close()
     await jarvis.close()
     await close_tts_cloud()
+    await close_asr_client()

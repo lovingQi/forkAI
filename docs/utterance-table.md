@@ -27,5 +27,6 @@
 | fail_no_site | 失败：未现场解锁 | 错误 |
 | fail_lock | 失败：无点动控制权 | 错误 |
 | fail_unknown | 失败：未识别指令 | 错误 |
+| fail_asr | 失败：识别失败 | 错误 |
 | fail_goto | 失败：站点无效 | 错误 |
 | fail_generic | 失败：{reason} | 错误 |

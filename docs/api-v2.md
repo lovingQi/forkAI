@@ -30,6 +30,8 @@
 |------|------|--------|------|
 | POST | /api/voice/text | `{"text":"前进","channel":"ptt"\|"cabin"}` | `{"succeed":true,"intent":{name,slots,rawText},"utterance":"好的，前进","audioBase64":"...","ttsEngine":"cloud-cache","target":"both","intents":[...]}`；空文本 `400 {"succeed":false,"error":"empty"}` |
 | POST | /api/voice/stop | — | 等价于以 ptt 通道执行"停止" |
+| GET | /api/voice/providers | `?probe=1` 打开下拉时测延迟 | `{"asr":{"selected","items":[{"id","name","latencyMs","error"}]},"llm":{...}}` |
+| PUT | /api/voice/providers | `{asrModel?,llmModel?}` | 写入 `runtime_models.yaml`；`{"succeed":true,"asrModel","llmModel"}` |
 
 响应说明：`errorCode`/`audioBase64` 为空时省略该键；`intents` 为完整意图数组（复合指令多元素）；追问/待确认时 `utterance` 为追问或确认话术（如 `请告诉我起点`、`确认执行任务流取货演示流程吗`）。
 
@@ -64,13 +66,12 @@
 
 ### 2.1 /ws/audio（语音音频上行）
 
-1. 连接后**第一条**为 JSON：`{"pairToken":"...","channel":"ptt"|"cabin"}`；校验失败以 code 4401 关闭。
-2. 之后二进制帧 = PCM16 16kHz mono 音频块。
+1. 连接后**第一条**为 JSON：`{"pairToken":"...","channel":"ptt"}`；校验失败以 code 4401 关闭。`channel` 忽略，一律按 ptt。
+2. 之后二进制帧 = PCM16 16kHz mono 音频块，服务端缓冲。
 3. 下行 JSON 帧：
-   - `{"type":"partial","text":"..."}` 实时部分识别
    - `{"type":"final","text":"前进","succeed":true,"intent":{...},"utterance":"...","audioBase64":"...","ttsEngine":"...","target":"...","intents":[...]}`（与 /api/voice/text 响应同构）
-   - `{"type":"error","error":"asr_unavailable: ..."}`
-4. 文本帧 `{"event":"end"}` = 手动结束（PTT 松开）→ flush 出 final；端点检测自动出 final。PTT 一次 final 后流重置可继续下一句；cabin 持续循环。
+   - 识别失败：`{"type":"final","text":"","succeed":false,"errorCode":"asr_failed","utterance":"失败：识别失败",...}`
+4. 文本帧 `{"event":"end"}` = PTT 松开 → 整句上传云端 ASR（超时 5s）→ final。
 
 ### 2.2 /ws/events（事件广播）
 

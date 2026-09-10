@@ -7,7 +7,7 @@
 - `apps/web` — Vue3 监控总览 + 语音条 + 任务流编辑器
 - `services/core` — **V2 唯一后端** forkai-core（FastAPI，:19000，静态托管 apps/web/dist）
 - `services/mock-jarvis` — 车端模拟（:8080）
-- `services/llm-sidecar` — llama-server NLU 兜底侧车（:19002）
+- `services/llm-sidecar` — llama-server 历史侧车（运行时不再拉起）
 - `services/voice-gateway` / `services/speech` — **V1 已冻结禁用**，请勿启动或修改
 - `packages/shared` — 共享类型与协议
 - `deploy` — systemd / 二维码脚本
@@ -16,7 +16,7 @@
 ## 快速开始（V2）
 
 ```bash
-./start-v2.sh        # 一键起 mock-jarvis(:8080) + llama-server(:19002) + forkai-core(:19000)
+./start-v2.sh        # 一键起 mock-jarvis(:8080) + forkai-core(:19000)
 npm run dev:web      # 可选：前端热更新（vite :5173，代理到 :19000）
 ```
 

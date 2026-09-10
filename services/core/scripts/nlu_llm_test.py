@@ -1,20 +1,17 @@
 #!/usr/bin/env python3
-"""混合 NLU 直测（步骤26验证）：10 条用例过 router.parse_intent。
+"""混合 NLU 直测：10 条用例过 router.parse_intent。
 
 - 规则命中 5 条：不应经过 LLM（打印 via=rule）
 - 复杂 5 条：规则 UNKNOWN → LLM，打印 LLM 原始输出与最终意图列表
 
-前置：llama-server 已在 :19002 运行（测 LLM 用例需要；不在则全部降级 UNKNOWN）。
+前置：FORKAI_TTS_API_KEY（SiliconFlow）与所选 LLM；官方 DeepSeek 项另需 FORKAI_DEEPSEEK_API_KEY。
 
 用法（services/core 目录下）：
     .venv/bin/python scripts/nlu_llm_test.py
 """
 import asyncio
-import json
 import sys
 from pathlib import Path
-
-import httpx
 
 CORE_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(CORE_ROOT))
@@ -32,7 +29,7 @@ LLM_CASES = [
     "今天电量怎么样还能干活吗",
 ]
 
-# 期望（仅用于对照打印，不断言——0.5B 表现需人工评估）
+# 期望（对照打印；云端大模型仍建议人工扫一眼）
 EXPECTED = {
     "升到2米然后去A区": [("FORK_LIFT_TO", {"n": 2000}), ("GOTO_GOAL", {"goal": "A区"})],
     "先回充再空闲": [("DOCK", {}), ("IDLE", {})],
@@ -42,25 +39,10 @@ EXPECTED = {
 }
 
 
-async def llm_raw(cfg: dict, text: str) -> str:
-    """直调 /v1/chat/completions 拿原始输出（用于报告 LLM 实际表现）。"""
-    from app.nlu.prompts import SYSTEM_PROMPT
-
-    base = cfg["llm"]["base_url"].rstrip("/")
-    async with httpx.AsyncClient(timeout=float(cfg["llm"].get("timeout_s", 3)) * 3) as c:
-        res = await c.post(
-            f"{base}/v1/chat/completions",
-            json={
-                "model": "test",
-                "messages": [
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": text},
-                ],
-                "temperature": 0,
-                "max_tokens": 256,
-            },
-        )
-        return res.json()["choices"][0]["message"]["content"]
+async def llm_raw(llm: LLMClient, text: str) -> str:
+    """直调当前配置的云端模型拿原始输出。"""
+    raw = await llm.raw_content(text)
+    return raw if raw is not None else "<请求失败或未配置 key>"
 
 
 async def main() -> int:
@@ -80,7 +62,7 @@ async def main() -> int:
         raw = ""
         if via != "rule":
             try:
-                raw = await llm_raw(cfg, text)
+                raw = await llm_raw(llm, text)
             except Exception as e:
                 raw = f"<请求失败: {e}>"
         intents = await parse_intent(text, llm)

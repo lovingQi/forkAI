@@ -8,16 +8,16 @@
 
 ```
 ┌─────────────────────────────┐
-│  浏览器前端 apps/web          │  车载麦克风（cabin_listen，默认关）
-│  （语音/编辑器/监控）          │        │
-└──────┬──────────────────────┘        │ PCM16
-       │ HTTP/WS                       ▼
-       ▼                       ┌────────────────┐
+│  浏览器前端 apps/web          │
+│  （PTT 语音/编辑器/监控）      │
+└──────┬──────────────────────┘
+       │ HTTP/WS  PCM16
+       ▼
 ┌──────────────────────────────────────────────┐
 │  forkai-core（FastAPI，:19000）               │
 │  ├─ api/        REST + WS 路由                │
-│  ├─ asr/        sherpa-onnx 流式识别           │
-│  ├─ nlu/        规则 → LLM → UNKNOWN 路由      │
+│  ├─ asr/        云端整句识别（SiliconFlow）     │
+│  ├─ nlu/        规则 → 云端 LLM → UNKNOWN      │
 │  ├─ executor    意图执行 + 分级锁定             │
 │  ├─ tasks/      参数schema + ParamDialogue    │
 │  ├─ taskflow/   任务流引擎（校验/存储/执行/匹配）│
@@ -29,8 +29,8 @@
        │ HTTP /api/* + WS      │ OpenAI 兼容
        ▼                       ▼
 ┌──────────────┐      ┌─────────────────┐
-│ jarvis 车端   │      │ llama-server     │
-│ （:8080）     │      │ Qwen2-0.5B :19002│
+│ jarvis 车端   │      │ SiliconFlow /     │
+│ （:8080）     │      │ DeepSeek 官方     │
 └──────────────┘      └─────────────────┘
 前端静态托管：core 直接挂载 apps/web/dist（存在时）。
 ```
@@ -39,13 +39,15 @@
 
 | 模块 | 文件 | 职责 |
 |------|------|------|
-| asr.engine | app/asr/engine.py | SherpaASR 单例懒加载，推理解放线程池，热词加载 |
-| asr.stream | app/asr/stream.py | 每路音频的 partial/final 状态机，flush 尾 padding |
-| asr.capture | app/asr/capture.py | 车载常听采集（sounddevice，默认关闭，失败只告警） |
+| asr.cloud | app/asr/cloud.py | SiliconFlow 整句转写、模型列表、延迟探测；超时抛 ASRError |
+| asr.pcm_wav | app/asr/pcm_wav.py | PCM16 → WAV |
+| asr.engine | app/asr/engine.py | SherpaASR 保留未在 PTT 路径加载 |
+| asr.stream | app/asr/stream.py | 本地流式封装（PTT 不再使用） |
+| asr.capture | app/asr/capture.py | CabinListener 保留但 main 不再启动 |
 | nlu.rules | app/nlu/rules.py | 正则意图全表 + 唤醒词同音字模糊匹配 + ASR 纠偏表 |
-| nlu.llm | app/nlu/llm.py | llama-server 客户端，JSON 围栏剥离+结构校验，静默降级 |
+| nlu.llm | app/nlu/llm.py | 云端 chat/completions（SiliconFlow / 官方 DeepSeek），JSON 校验，静默降级 |
 | nlu.router | app/nlu/router.py | 规则→LLM→UNKNOWN；规则命中覆盖率判断分流复合指令 |
-| nlu.prompts | app/nlu/prompts.py | LLM 意图白名单 + system prompt（few-shot） |
+| nlu.prompts | app/nlu/prompts.py | LLM 意图白名单 + system prompt（同音还原 + few-shot） |
 | executor | app/executor.py | 意图执行：点动/货叉/任务/查询/流控 + 对话整合 + 分级锁定 |
 | tasks.schemas | app/tasks/schemas.py | TASK_* 参数 schema（required/safety/default/追问话术/确认策略） |
 | tasks.dialogue | app/tasks/dialogue.py | ParamDialogue 追问/确认/取消状态机（30s 惰性超时） |
@@ -83,11 +85,11 @@ core → auth(Bearer) → cabin 通道先匹配唤醒词（命中→arm_wake+TTS
 ### 3.2 WS 音频链路（/ws/audio）
 
 ```
-前端 → WS 连接 → 首帧 JSON {pairToken,channel}（失败 4401 关闭）
-     → 二进制帧 PCM16 16kHz mono → ASRStream.feed → 回发 {"type":"partial",text}
-     → {"event":"end"} 或端点检测 → flush 出 final
-     → broadcast asr_final（前端停播 TTS）→ run_utterance（同 3.1）
-     → 回发 {"type":"final",text,...run_utterance 结果}；PTT 一次 final 后重置流
+前端 → WS 连接 → 首帧 JSON {pairToken,channel}（失败 4401 关闭；channel 忽略，一律 ptt）
+     → 二进制帧 PCM16 16kHz mono 缓冲
+     → {"event":"end"} → 打成 WAV → 云端 /audio/transcriptions（超时 5s）
+     → 失败则播 fail_asr 并回 final errorCode=asr_failed
+     → 成功则 broadcast asr_final → run_utterance → 回发 {"type":"final",...}
 ```
 
 ### 3.3 任务流执行链路

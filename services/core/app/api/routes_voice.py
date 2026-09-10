@@ -12,9 +12,19 @@ import re
 from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 
-from ..asr.engine import SherpaASR
-from ..asr.stream import ASRStream
-from ..config import now_ms
+from ..asr.cloud import (
+    ASRError,
+    asr_display_name,
+    cloud_asr_enabled,
+    current_asr_model,
+    list_asr_models,
+    load_probe_wav,
+    probe_asr_model,
+    transcribe,
+)
+from ..asr.pcm_wav import pcm16_to_wav
+from ..config import now_ms, save_runtime_models
+from ..nlu.llm import LLM_CATALOG, LLM_CATALOG_IDS, current_llm_model
 from ..nlu.router import parse_intent
 from ..nlu.rules import correct_asr, match_wake_word, wake_word_pattern
 from ..speak import render, resolve_target
@@ -180,7 +190,62 @@ async def voice_stop(request: Request, client_id: str = Depends(auth)):
         return JSONResponse(status_code=500, content={"succeed": False, "error": str(e)})
 
 
-# ---- WS /ws/audio：二进制 PCM16 16kHz mono → ASR → run_utterance ----
+# ---- 模型菜单：GET 列表/探测，PUT 记住所选 ----
+
+
+@router.get("/api/voice/providers")
+async def voice_providers(request: Request, client_id: str = Depends(auth)):
+    cfg = request.app.state.cfg
+    probe = str(request.query_params.get("probe") or "") in ("1", "true", "yes")
+    asr_selected = current_asr_model(cfg)
+    llm_selected = current_llm_model(cfg)
+    asr_items: list[dict] = []
+    try:
+        asr_ids = await list_asr_models(cfg)
+    except ASRError:
+        asr_ids = [asr_selected] if asr_selected else []
+    if probe:
+        wav = load_probe_wav()
+        tasks = [probe_asr_model(cfg, mid, wav) for mid in asr_ids]
+        asr_items = list(await asyncio.gather(*tasks)) if tasks else []
+    else:
+        asr_items = [
+            {"id": mid, "name": asr_display_name(mid), "latencyMs": None, "error": None}
+            for mid in asr_ids
+        ]
+    llm = getattr(request.app.state, "llm", None)
+    if probe and llm is not None:
+        llm_items = list(
+            await asyncio.gather(*(llm.probe_model(item["id"]) for item in LLM_CATALOG))
+        )
+    else:
+        llm_items = [
+            {"id": item["id"], "name": item["name"], "latencyMs": None, "error": None}
+            for item in LLM_CATALOG
+        ]
+    return {
+        "asr": {"selected": asr_selected, "items": asr_items},
+        "llm": {"selected": llm_selected, "items": llm_items},
+    }
+
+
+@router.put("/api/voice/providers")
+async def voice_providers_put(request: Request, client_id: str = Depends(auth)):
+    body = await read_body(request)
+    cfg = request.app.state.cfg
+    asr_model = str(body.get("asrModel") or current_asr_model(cfg)).strip()
+    llm_model = str(body.get("llmModel") or current_llm_model(cfg)).strip()
+    if not asr_model:
+        return JSONResponse(status_code=400, content={"succeed": False, "error": "empty_asr"})
+    if llm_model not in LLM_CATALOG_IDS:
+        return JSONResponse(status_code=400, content={"succeed": False, "error": "bad_llm"})
+    cfg.setdefault("asr", {}).setdefault("cloud", {})["model"] = asr_model
+    cfg.setdefault("llm", {})["model"] = llm_model
+    save_runtime_models(asr_model, llm_model)
+    return {"succeed": True, "asrModel": asr_model, "llmModel": llm_model}
+
+
+# ---- WS /ws/audio：二进制 PCM16 16kHz mono 缓冲 → 云端整句 ASR → run_utterance ----
 
 
 async def _ws_send_json(ws: WebSocket, obj: dict) -> None:
@@ -205,26 +270,44 @@ async def ws_audio(ws: WebSocket):
         await ws.close(code=4401)
         return
     client_id = rec["clientId"]
-    channel = "cabin" if hello.get("channel") == "cabin" else "ptt"
-
-    try:
-        asr = await SherpaASR.instance(ws.app.state.cfg)
-    except Exception as e:
-        # ASR 不可用：告知后关闭（前端降级文本输入）
-        try:
-            await _ws_send_json(ws, {"type": "error", "error": f"asr_unavailable: {e}"})
-        finally:
-            await ws.close(code=1011)
-        return
-
-    stream = ASRStream(asr)
+    channel = "ptt"
+    cfg = ws.app.state.cfg
     bus = ws.app.state.bus
+    pcm_buf = bytearray()
+
+    async def speak_asr_fail() -> dict:
+        utterance = render("fail_asr")
+        spoken = await synthesize(utterance, "fail", cfg)
+        bus.broadcast(
+            "tts",
+            {
+                "text": spoken["text"],
+                "style": "fail",
+                "target": "device",
+                "audioBase64": spoken["audio_base64"],
+                "ttsEngine": spoken["engine"],
+                "clientId": client_id,
+            },
+        )
+        out = {
+            "succeed": False,
+            "intent": {"name": "UNKNOWN", "slots": {}, "rawText": ""},
+            "errorCode": "asr_failed",
+            "utterance": utterance,
+            "audioBase64": spoken["audio_base64"],
+            "ttsEngine": spoken["engine"],
+            "target": "device",
+        }
+        if out["audioBase64"] is None:
+            del out["audioBase64"]
+        return out
 
     async def run_final(text: str) -> None:
         text = text.strip()
         if not text:
+            out = await speak_asr_fail()
+            await _ws_send_json(ws, {"type": "final", "text": "", **out})
             return
-        # TTS 打断基础：前端收到 asr_final 停播当前音频
         bus.broadcast(
             "asr_final", {"clientId": client_id, "channel": channel, "text": text}
         )
@@ -238,27 +321,31 @@ async def ws_audio(ws: WebSocket):
                 break
             data_bytes = msg.get("bytes")
             if data_bytes is not None:
-                events = await stream.feed(data_bytes)
-                for is_final, text in events:
-                    if is_final:
-                        await run_final(text)
-                    else:
-                        await _ws_send_json(ws, {"type": "partial", "text": text})
-            else:
-                raw_text = msg.get("text")
-                if not raw_text:
-                    continue
-                try:
-                    data = json.loads(raw_text)
-                except Exception:
-                    continue
-                if isinstance(data, dict) and data.get("event") == "end":
-                    final = await stream.flush()
-                    if final:
-                        await run_final(final)
+                pcm_buf.extend(data_bytes)
+                continue
+            raw_text = msg.get("text")
+            if not raw_text:
+                continue
+            try:
+                data = json.loads(raw_text)
+            except Exception:
+                continue
+            if not (isinstance(data, dict) and data.get("event") == "end"):
+                continue
+            wav = pcm16_to_wav(bytes(pcm_buf), int((cfg.get("asr") or {}).get("sample_rate", 16000)))
+            pcm_buf.clear()
+            if not cloud_asr_enabled(cfg):
+                out = await speak_asr_fail()
+                await _ws_send_json(ws, {"type": "final", "text": "", **out})
+                continue
+            try:
+                text = await transcribe(cfg, wav)
+            except ASRError:
+                out = await speak_asr_fail()
+                await _ws_send_json(ws, {"type": "final", "text": "", **out})
+                continue
+            await run_final(text)
     except WebSocketDisconnect:
         pass
     except RuntimeError:
         pass
-    finally:
-        await stream.close()

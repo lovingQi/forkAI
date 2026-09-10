@@ -30,6 +30,7 @@ FORKAI_PORT="${FORKAI_PORT:-19000}"
 LLM_PORT="${LLM_PORT:-19002}"
 VEHICLE_ID="${VEHICLE_ID:-fork-01}"
 TTS_API_KEY="${TTS_API_KEY:-}"
+DEEPSEEK_API_KEY="${DEEPSEEK_API_KEY:-}"
 PIP_INDEX="${PIP_INDEX:-https://mirrors.aliyun.com/pypi/simple/}"  # 阿里云镜像加速，可改
 
 log()  { echo -e "\033[1;32m[install]\033[0m $*"; }
@@ -295,9 +296,15 @@ piper:
   model: models/piper/$PIPER_MODEL.onnx
   config: models/piper/$PIPER_MODEL.onnx.json
 asr:
+  sample_rate: 16000
+  cloud:
+    enabled: true
+    base_url: https://api.siliconflow.cn/v1
+    model: Qwen/Qwen3-ASR-1.7B
+    timeout_s: 5
+    api_key_env: FORKAI_TTS_API_KEY
   model_dir: models/asr/$ASR_MODEL
   num_threads: 1
-  sample_rate: 16000
   enable_endpoint: true
   rule1_min_trailing_silence: 2.4
   rule2_min_trailing_silence: 1.2
@@ -313,9 +320,16 @@ fork:
   tolerance: 20
   confirm_threshold: 100
 llm:
-  base_url: http://127.0.0.1:$LLM_PORT
-  timeout_s: 3
   enabled: true
+  timeout_s: 10
+  model: deepseek-ai/DeepSeek-V3.2
+  siliconflow:
+    base_url: https://api.siliconflow.cn/v1
+    api_key_env: FORKAI_TTS_API_KEY
+  deepseek:
+    base_url: https://api.deepseek.com/v1
+    model: deepseek-chat
+    api_key_env: FORKAI_DEEPSEEK_API_KEY
 taskflow:
   node_timeout_s: 120
   low_battery_pct: 20
@@ -355,8 +369,7 @@ EOF
 cat > /etc/systemd/system/forkai-core.service <<EOF
 [Unit]
 Description=forkAI core (FastAPI unified backend)
-After=network.target forkai-llm.service
-Wants=forkai-llm.service
+After=network.target
 
 [Service]
 Type=simple
@@ -365,6 +378,7 @@ Environment=JARVIS_BASE_URL=$JARVIS_BASE_URL
 Environment=FORKAI_PORT=$FORKAI_PORT
 Environment=VEHICLE_ID=$VEHICLE_ID
 Environment=FORKAI_TTS_API_KEY=$TTS_API_KEY
+Environment=FORKAI_DEEPSEEK_API_KEY=$DEEPSEEK_API_KEY
 ExecStart=$CORE_DIR/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port $FORKAI_PORT
 Restart=always
 RestartSec=2
@@ -375,7 +389,7 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable --now forkai-llm forkai-core
+systemctl enable --now forkai-core
 
 # ---------- 10. 完成提示 ----------
 IP="$(hostname -I 2>/dev/null | awk '{print $1}')"

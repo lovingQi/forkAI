@@ -2,17 +2,17 @@
 
 ## 技术栈与红线
 
-- 唯一活跃栈是 **V2**：mock-jarvis(:8080) + forkai-core(:19000, Python/FastAPI) + llama-server(:19002) + apps/web。
+- 唯一活跃栈是 **V2**：mock-jarvis(:8080) + forkai-core(:19000) + apps/web。llama-server(:19002) 侧车保留但不作为运行时 NLU。
 - **V1（services/voice-gateway、services/speech、forkweb）已冻结禁用**：不要启动、不要修改、不要为其新增功能。相关 npm 命令仅以 `dev:legacy:*` 前缀保留作历史参考。
 - V1 老服务需 node≥20 才能运行（系统 node16 会崩），这正是不应再碰它的原因之一。V2 中 mock-jarvis 用系统 node 即可；tests/e2e 的 Playwright 需 node≥20。
 
 ## 启动与停止
 
 - 一键启动 V2：`./start-v2.sh`（幂等，日志在 `/tmp/forkai-v2/`）。
-- 云端 TTS 需先 `export FORKAI_TTS_API_KEY=...`，未设置时自动回退 piper。
+- 云端 TTS/ASR/SiliconFlow LLM 需先 `export FORKAI_TTS_API_KEY=...`；官方 DeepSeek 另需 `export FORKAI_DEEPSEEK_API_KEY=...`。未设置 TTS key 时 TTS 回退 piper，ASR 报识别失败。
 - 前端热更新：`npm run dev:web`（vite :5173，代理到 :19000）。
 - 入口：http://127.0.0.1:19000/（core 静态托管 apps/web/dist）。
-- 停止：`pkill -f 'mock-jarvis/src/index.js'; pkill -f 'llama-server'; pkill -f 'uvicorn app.main:app'`。
+- 停止：`pkill -f 'mock-jarvis/src/index.js'; pkill -f 'uvicorn app.main:app'`。
 
 ## 端口表
 
@@ -20,14 +20,14 @@
 |---|---|
 | 8080 | mock-jarvis（车端模拟） |
 | 19000 | forkai-core（唯一后端） |
-| 19002 | llama-server（NLU 兜底侧车） |
+| 19002 | llama-server（历史 NLU 侧车，运行时不再拉起） |
 | 5173 | vite dev（仅前端热更新时） |
 
 ## 回归测试
 
 - NLU 黄金语料：`cd services/core && .venv/bin/python scripts/nlu_corpus_test.py`
-- LLM 直测：`cd services/core && .venv/bin/python scripts/nlu_llm_test.py`（需 llama-server）
-- week2 任务回归：`cd services/core && .venv/bin/python scripts/week2_regression.py`（需 mock+core+llama 全起）
+- LLM 直测：`cd services/core && .venv/bin/python scripts/nlu_llm_test.py`（需云端 LLM key）
+- week2 任务回归：`cd services/core && .venv/bin/python scripts/week2_regression.py`（需 mock+core）
 
 ## 修改约定
 
@@ -66,7 +66,8 @@
 | `nlu/router.py`、`llm.py`、`prompts.py` | NLU 黄金语料 + `nlu_llm_test.py`，注明其中的人工评估项 |
 | `executor.py`、任务参数、route 构造 | `week2_regression.py` + `protocol_conformance.py` |
 | `taskflow/*` | `week3_engine_test.py` + `week4_voice_flow_test.py` |
-| ASR、端点、音频链路 | 适用的 `asr_offline_test.py`、`asr_noise_test.py`、`ws_audio_test.py` |
+| ASR、端点、音频链路 | `asr_cloud_test.py` + `ws_audio_test.py` |
+| `asr/cloud.py` | `asr_cloud_test.py` |
 | `apps/web` | Web typecheck + Web build + 受影响 Playwright 用例 |
 | 配对、现场锁、语音、流程编辑器、急停 UI | Node 20+ 下运行受影响 `tests/e2e/specs` |
 | Mock 或车端协议映射 | `protocol_conformance.py` + 受影响 Week 回归；必要时保留真车待验状态 |

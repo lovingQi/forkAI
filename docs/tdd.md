@@ -40,7 +40,7 @@ forkAI 部署在叉车车载工控机，外部实体：
 
 ### 3.1 装配与配置（`app/main.py`、`app/config.py`）
 
-- **职责**：进程装配单例——EventBus、SessionManager、JarvisClient、MotionWatchdog、IntentExecutor、LLMClient、CabinListener、AlarmMonitor、FlowStore、FlowEngine，挂到 `app.state`；注册 6 个路由；静态托管前端。
+- **职责**：进程装配单例——EventBus、SessionManager、JarvisClient、MotionWatchdog、IntentExecutor、LLMClient、AlarmMonitor、FlowStore、FlowEngine，挂到 `app.state`；注册 6 个路由；静态托管前端。
 - **关键行为**：CORS 全开（厂内局域网假设）；`UnpairedError` 全局转 401 `{"succeed":false,"error":"unpaired"}`；startup 钩子启动 `cabin_listener.start()`、`alarm_monitor.start()`、`flow_engine.restore_snapshot()`。
 - **配置**：`config/core.config.yaml` + 环境变量覆盖（`FORKAI_CORE_CONFIG`/`JARVIS_BASE_URL`/`FORKAI_PORT`/`VEHICLE_ID`）。关键配置项：watchdogMs=2000、siteSessionTtl=45min、pairCode=5min、pairToken=24h、wakeArm=30s、speed 20/40/step5、fork 75~210mm、llm timeout 3s、taskflow 超时 120s/低电 20%/恢复 80%/轮询 500ms、`safety.estop_exit_site=true`。
 - **实现状态**：已完成，Mock 回归。
@@ -68,35 +68,36 @@ forkAI 部署在叉车车载工控机，外部实体：
 ### 3.6 语音主链路（`app/api/routes_voice.py`）
 
 - `POST /api/voice/text`：文本入口（调试/远程），走与语音相同的 `run_utterance()`。
-- `WS /ws/audio`：首帧 JSON `{pairToken, channel}` 鉴权（失败 4401）；二进制 PCM16 16kHz mono 上行 → ASRStream；下行 partial/final/error；`{"event":"end"}` 手动 flush。
+- `WS /ws/audio`：首帧 JSON `{pairToken, channel}` 鉴权（失败 4401）；二进制 PCM16 缓冲至 `{"event":"end"}` → 云端整句 ASR；失败播 `fail_asr`。
 - **核心函数 `run_utterance()`**（编排顺序）：
-  1. cabin 通道先 `match_wake_word`：命中 → 武装 30s + TTS wake_ack + 广播 `wake_armed`；纯唤醒词**短路只应声**（ptt 通道同，防 0.5B LLM 误映射）。
+  1. cabin 通道先 `match_wake_word`：命中 → 武装 30s + TTS wake_ack + 广播 `wake_armed`；纯唤醒词**短路只应声**（ptt 通道同）。
   2. `correct_asr` 纠偏 → `parse_intent`（混合路由，可返回复合 intents 数组）。
   3. 逐个 `executor.handle`：复合指令按序执行，**失败或 awaiting 即中断后续**。
-  4. render 话术 → piper 合成 → 广播 `intent` + `tts` 事件。
-  5. cabin 通道成功后滚动续期免唤醒窗口。
+  4. render 话术 → 合成 → 广播 `intent` + `tts` 事件。
+  5. cabin 通道成功后滚动续期免唤醒窗口（前端已停用常听，该分支仅 API 兼容）。
+- `GET/PUT /api/voice/providers`：模型菜单与延迟探测；PUT 写 `runtime_models.yaml`。
 - `POST /api/voice/stop`：等价语音"停止"。
 
 ### 3.7 NLU（`app/nlu/rules.py`、`router.py`、`llm.py`、`prompts.py`）
 
 - **规则层（rules.py）**：`RULES` 数组先匹配先赢，顺序有互斥设计（CONFIRM/CANCEL > FLOW_* > STOP > TASK_HEAD > TURN > FORK > SPEED > TASK_* > DOCK > GOTO > QUERY）。单位换算（毫米/厘米/米）、`掉头`=180°、站点名保真。含 **ASR_CORRECTIONS** 同音误识别纠偏表（长词优先）与**唤醒词同音字等价组**字符类匹配。
 - **混合路由（router.py）**：规则命中且残余无意图 → 直接返回；残余有意图 → compound 交 LLM 拆分；规则 UNKNOWN → 交 LLM。LLM 输出做 `INTENT_NAMES` 白名单校验 + 关键 slot 类型校验（`_slots_sane`，防 0.5B 硬映射）；LLM 首意图数值 slot 用规则解析值覆盖（防单位换算错）。**LLM 全废时降级**：unknown→`[UNKNOWN]`；compound→只执行首个规则命中（部分执行）。
-- **LLM 客户端（llm.py）**：OpenAI 兼容 `/v1/chat/completions`，temperature=0、max_tokens=256、3s 超时；剥 ```json 围栏、结构校验、≤3 项；不可达打一次 warning 后静默降级。
+- **LLM 客户端（llm.py）**：云端 OpenAI 兼容 `/chat/completions`，temperature=0、max_tokens=256、10s 超时、`enable_thinking=false`；剥 ```json 围栏、结构校验、≤3 项；不可达打一次 warning 后静默降级。菜单：官方 DeepSeek-chat、DeepSeek-V3.2、DeepSeek-V3、Qwen3.5-27B、GLM-5.1。
 - **意图全集**：34 个意图名（`prompts.py` INTENT_NAMES；含 e6011ae 新增 QUERY_STATUS）。
 - **设计要点**：LLM 输出永远过白名单与类型校验——概率模型不直接产生可执行指令。
 - **实现状态**：已完成；黄金语料 75 条 + LLM 直测（含人工评估项）。
 
-### 3.8 ASR（`app/asr/engine.py`、`stream.py`、`capture.py`）
+### 3.8 ASR（`app/asr/cloud.py`、`pcm_wav.py`）
 
-- **SherpaASR（engine.py）**：单例懒加载 sherpa-onnx OnlineRecognizer（transducer，int8 onnx glob 查找）；endpoint 三条规则可配；热词文件（score 2.0）；CPU provider；推理走模块级 ThreadPoolExecutor（2 线程）不阻塞事件循环；**sherpa/模型缺失降级不崩溃**。
-- **ASRStream（stream.py）**：feed 产出 (is_final, text)；endpoint 自动 reset 续听；flush 补 0.6s 静音尾垫强出 final；close 取残余。
-- **CabinListener（capture.py）**：`cabin_listen.enabled=true` 时 sounddevice 读 ALSA 麦 16kHz 喂 ASRStream，final 走 `run_utterance(channel="cabin")`；**默认关闭**；无配对上下文时 clientId 取现场锁持有者（无则 "cabin" 占位）。
-- **实现状态**：已完成（x86 RTF≈0.06）；车载常听真机未实测。
+- **云端整句**：PTT 缓冲 PCM → WAV → SiliconFlow `/audio/transcriptions`；超时 5s 抛 ASRError，播 `fail_asr`，不回退 sherpa。
+- **菜单**：`GET /v1/models?type=audio&sub_type=speech-to-text` 全部 id；打开下拉并行测延迟。
+- **Sherpa / CabinListener**：代码保留，PTT 与 main 不再加载/启动。
+- **实现状态**：云端 PTT 已落地。
 
 ### 3.9 TTS 与话术（`app/tts/service.py`、`cloud.py`、`cache.py`、`prewarm.py`、`piper.py`、`app/speak.py`）
 
 - **合成链**：本地缓存 → 云端 CosyVoice2（超时 1.5s，WAV 头修正）→ piper CLI 兜底 → mock（audio=None，前端 speechSynthesis）。piper 路径保留拉丁字母→中文读音字转写；云端收原文。无提示音、无前导静音。
-- **speak.py**：话术渲染（`config/utterances.zh-CN.json`，52 键，缺失占位符原样保留）+ 播报目标路由（wake→vehicle；query→speak.query；cabin/ptt→对应配置）。
+- **speak.py**：话术渲染（`config/utterances.zh-CN.json`，含 `fail_asr`，缺失占位符原样保留）+ 播报目标路由（wake→vehicle；query→speak.query；cabin/ptt→对应配置）。
 - **实现状态**：云端增强已落地；音色/音量真机听感待验（R-08）。
 
 ### 3.10 任务 Schema 与参数对话（`app/tasks/schemas.py`、`dialogue.py`）
@@ -150,7 +151,7 @@ forkAI 部署在叉车车载工控机，外部实体：
 
 - **路由**：hash 路由（`App.vue:70`）：`#/flow` → FlowEditor，否则 Dashboard；未配对显示配对门（6 位码）。头部常驻：车端连接/配对/现场剩余分钟 + 全局"停"按钮。
 - **Dashboard.vue**：左 CanvasView（地图+激光+位姿+路径+车体轮廓画布，右键点"到达 X"→ `control('autodrive')`）；右 StatusPanel（车况/实时数据/叉车信息/IO 位）+ VoiceBar + 任务流入口。
-- **VoiceBar.vue**：PTT 按住说话（mousedown/touch）；车载常听开关（浏览器麦走 `/ws/audio` cabin 通道，与服务端 ALSA cabin_listen 是两条独立链路）；停止；文本调试框（ptt/cabin 通道切换）；partial/识别中/话术/最近 8 条日志；麦不可用降级文本输入。
+- **VoiceBar.vue**：PTT 按住说话（鼠标/触摸，或按住空格、松开结束；INPUT/TEXTAREA/选择框内不抢空格）；ASR/LLM 下拉（打开时测延迟，改选写入 runtime_models.yaml）；停止；文本调试（仅 ptt）；识别中/话术/最近 8 条日志；麦不可用降级文本输入。常听与车载通道已去掉。
 - **FlowEditor.vue**（457 行）：vue-flow 画布，6 种节点，拖拽连线（每节点每类出边限 1 条，点击边切 success/fail），NodePanel 按 `/api/tasks/schemas` 动态渲染参数表单（required/safety 标记），CRUD + 执行/暂停/继续/取消 + 引擎状态标签；节点色环随 `flow_event` 更新；布局存 `flow.ui.positions`；引擎忙时全编辑禁用；**不支持编辑 parallel_groups 和 options**（保存只序列化 nodes/edges/ui，含并行组的流再保存会丢该字段，R-05）。
 - **stores/session.ts**：配对/现场/事件总线状态；TTS 用**常驻 AudioContext** 播 base64（避免 new Audio 重开流吃开头字，配合服务端前导静音垫），失败回退 speechSynthesis；`asr_final` 触发 TTS 打断；`flow_event` 更新流程状态。
 - **stores/robot.ts**：high/low WS 解析进车况 state（pose/vel/laser/path/robot_size/battery/alarm/current_routes/fork_info/IO）。
@@ -178,9 +179,9 @@ forkAI 部署在叉车车载工控机，外部实体：
 ```
 浏览器 PTT 采集（AudioWorklet 16k PCM16）
   → WS /ws/audio（首帧 {pairToken, channel:"ptt"}）
-  → ASRStream feed → partial/final（端点或 {"event":"end"} 手动 flush）
+  → 缓冲至 {"event":"end"} → 云端整句 ASR（5s 超时）
   → 广播 asr_final（前端据此打断当前 TTS）
-  → correct_asr 纠偏 → parse_intent（规则→LLM→UNKNOWN，复合拆分）
+  → correct_asr 纠偏 → parse_intent（规则→云端 LLM→UNKNOWN，复合拆分）
   → executor.handle（现场锁/武装/任务流互斥检查 → ParamDialogue 追问/确认）
   → JarvisClient POST /api/control/{action} 或 scheduler 内联 route
   →（drive 类）MotionWatchdog 启动 2s 倒计时
@@ -319,17 +320,17 @@ cmd 与 JMode 处理者对应（源码 AddTask 注册）：`drive/safedrive`→J
 
 | 故障 | 降级行为 |
 |---|---|
+| 云端 ASR 超时/失败 | 播 `fail_asr`（失败：识别失败），不回退 sherpa |
 | LLM 不可达 | 纯规则 NLU；复合指令只执行首个规则命中；打一次 warning 后静默 |
 | 云端 TTS 不可达 | 超时后 piper 兜底；piper 也不可用则 `engine:"mock"` audio=None → 前端 speechSynthesis |
 | piper 不可用 | 云端/缓存命中仍可播；均失败则 TTS 回退 `engine:"mock"` audio=None → 前端 speechSynthesis |
-| sherpa/ASR 模型缺失 | 告警不崩溃；文本链路仍可用 |
-| sounddevice 缺失 | cabin_listen 无法启用，PTT 链路不受影响 |
+| ASR/LLM key 缺失 | 识别失败或 LLM 降级纯规则；文本链路仍可用 |
 | jarvis 不可达 | 任务流重试 3 次 + 续跑窗口 ≈5s + lost/back 广播；急停监控静默跳过 |
-| core 重启 | 任务流快照恢复 paused；配对/现场锁/武装失效需重新配对解锁 |
+| core 重启 | 任务流快照恢复 paused；配对/现场锁/武装失效需重新配对解锁；ASR/LLM 所选模型从 runtime_models.yaml 恢复 |
 
 ### 8.4 隐私与网络安全
 
-- ASR/NLU 全离线；TTS 联网增强、本地缓存与 piper 兜底；出网内容仅为模板话术文本；日志记文本不录音频，7 天删除。
+- ASR/NLU/TTS 联网增强；规则 NLU 与 piper 仍可离线；日志记文本不录音频，7 天删除。
 - 车端接口无鉴权；forkai-core Bearer + 配对码 + 现场锁构成全部访问控制——**部署前提是厂内受信网络**；CORS 全开同样基于此假设。
 
 ## 9. 数据与持久化
@@ -338,8 +339,8 @@ cmd 与 JMode 处理者对应（源码 AddTask 注册）：`drive/safedrive`→J
 |---|---|---|
 | 任务流定义 | `services/core/data/flows/{id}.json`（每流一文件 + 内存索引） | 持久，用户 CRUD |
 | 引擎快照 | `data/flows/.engine_state.json` | running/paused 迁移落盘；终态清除；启动恢复为 paused |
-| 话术配置 | `config/utterances.zh-CN.json`（52 键） | 启动加载 |
-| 核心配置 | `config/core.config.yaml` + env 覆盖 | 启动加载 |
+| 话术配置 | `config/utterances.zh-CN.json` | 启动加载 |
+| 核心配置 | `config/core.config.yaml` + `config/runtime_models.yaml` + env 覆盖 | 启动加载；模型选择运行期写回 runtime_models |
 | 配对/现场锁/武装/ParamDialogue | 内存（SessionManager / ParamDialogue） | **重启即失**（R-03） |
 | 模型资产 | `models/asr`、`models/llm`、`models/piper`、`data/tts_cache/` | 部署时安装；TTS 缓存运行期生成 |
 | 日志 | 文本日志（不录音频），7 天删除 | 滚动 |
@@ -356,7 +357,8 @@ cmd 与 JMode 处理者对应（源码 AddTask 注册）：`drive/safedrive`→J
 | 验证资产 | 覆盖 | 前置条件 | 证据等级 |
 |---|---|---|---|
 | `scripts/nlu_corpus_test.py` | NLU 黄金语料 75 条（规则层 + 纠偏） | 无 | E1 |
-| `scripts/nlu_llm_test.py` | 混合路由 10 条（5 规则 + 5 LLM） | llama :19002 | E1（含人工评估） |
+| `scripts/nlu_llm_test.py` | 混合路由 10 条（5 规则 + 5 LLM） | 云端 LLM key | E1（含人工评估） |
+| `scripts/asr_cloud_test.py` | 云端 ASR 出字 + 不可达失败 | SiliconFlow key | E2 |
 | `scripts/asr_offline_test.py` / `asr_noise_test.py` | piper 合成 → sherpa 识别；噪声 SNR 0~20dB | 模型 | E1 |
 | `scripts/ws_audio_test.py` | /ws/audio 全链路 | mock+core | E2 |
 | `scripts/protocol_conformance.py` | scheduler 契约 4 项 | mock+core | E2 |

@@ -118,3 +118,26 @@ export async function getHealth() {
   const { data } = await http.get('/health')
   return data
 }
+
+export type VoiceProviderItem = {
+  id: string
+  name: string
+  latencyMs: number | null
+  error: string | null
+}
+
+export async function getVoiceProviders(probe = false) {
+  const { data } = await http.get('/voice/providers', {
+    params: probe ? { probe: 1 } : {},
+    timeout: probe ? 20000 : 10000
+  })
+  return data as {
+    asr: { selected: string; items: VoiceProviderItem[] }
+    llm: { selected: string; items: VoiceProviderItem[] }
+  }
+}
+
+export async function setVoiceProviders(body: { asrModel?: string; llmModel?: string }) {
+  const { data } = await http.put('/voice/providers', body)
+  return data as { succeed: boolean; asrModel: string; llmModel: string }
+}

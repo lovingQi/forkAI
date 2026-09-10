@@ -39,16 +39,23 @@ piper:
   libDir: models/piper/piper
   model: models/piper/zh_CN-huayan-medium.onnx
   config: models/piper/zh_CN-huayan-medium.onnx.json
-# ASR：sherpa-onnx 流式中文识别（路径相对 services/core 目录）
+# ASR：PTT 整句上传 SiliconFlow；所选模型以 runtime_models.yaml 为准
 asr:
+  sample_rate: 16000
+  cloud:
+    enabled: true
+    base_url: https://api.siliconflow.cn/v1
+    model: Qwen/Qwen3-ASR-1.7B
+    timeout_s: 5
+    api_key_env: FORKAI_TTS_API_KEY
+  # 本地 sherpa 仅保留模型路径，PTT 不再加载
   model_dir: models/asr/sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23
   num_threads: 1
-  sample_rate: 16000
   enable_endpoint: true
   rule1_min_trailing_silence: 2.4
   rule2_min_trailing_silence: 1.2
   rule3_min_utterance_length: 20.0
-# 车载常听（默认关闭；enabled 时需 sounddevice + ALSA 麦）
+# 车载常听已停用（CabinListener 不再启动）
 cabin_listen:
   enabled: false
   device: null
@@ -60,11 +67,18 @@ fork:
   wait: 20
   tolerance: 20
   confirm_threshold: 100
-# LLM 混合 NLU（llama.cpp llama-server 侧车，OpenAI 兼容接口）
+# LLM 混合 NLU（规则优先；未命中走云端。所选模型以 runtime_models.yaml 为准）
 llm:
-  base_url: http://127.0.0.1:19002
-  timeout_s: 3
   enabled: true
+  timeout_s: 10
+  model: deepseek-ai/DeepSeek-V3.2
+  siliconflow:
+    base_url: https://api.siliconflow.cn/v1
+    api_key_env: FORKAI_TTS_API_KEY
+  deepseek:
+    base_url: https://api.deepseek.com/v1
+    model: deepseek-chat
+    api_key_env: FORKAI_DEEPSEEK_API_KEY
 # 任务流引擎
 taskflow:
   node_timeout_s: 120

@@ -5,7 +5,10 @@
 - JARVIS_BASE_URL     覆盖 jarvis.baseUrl
 - FORKAI_PORT         覆盖 server.port
 - VEHICLE_ID          覆盖 vehicleId
-- FORKAI_TTS_API_KEY  云端 TTS Key（由 tts.cloud.api_key_env 指定，不在此处覆盖 yaml）
+- FORKAI_TTS_API_KEY  云端 TTS/ASR/SiliconFlow LLM Key（不在此处覆盖 yaml）
+- FORKAI_DEEPSEEK_API_KEY  官方 DeepSeek Key（不在此处覆盖 yaml）
+
+界面所选 ASR/LLM 模型写在 config/runtime_models.yaml，启动时合并进 cfg。
 """
 import os
 from pathlib import Path
@@ -14,6 +17,7 @@ import yaml
 
 CORE_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG_PATH = CORE_ROOT / "config" / "core.config.yaml"
+RUNTIME_MODELS_PATH = CORE_ROOT / "config" / "runtime_models.yaml"
 
 
 def load_config() -> dict:
@@ -26,7 +30,31 @@ def load_config() -> dict:
         cfg["server"]["port"] = int(os.environ["FORKAI_PORT"])
     if os.environ.get("VEHICLE_ID"):
         cfg["vehicleId"] = os.environ["VEHICLE_ID"]
+    _merge_runtime_models(cfg)
     return cfg
+
+
+def _merge_runtime_models(cfg: dict) -> None:
+    if not RUNTIME_MODELS_PATH.is_file():
+        return
+    with open(RUNTIME_MODELS_PATH, "r", encoding="utf-8") as f:
+        rt = yaml.safe_load(f) or {}
+    asr_model = rt.get("asr_model")
+    if asr_model:
+        cfg.setdefault("asr", {}).setdefault("cloud", {})["model"] = str(asr_model)
+    llm_model = rt.get("llm_model")
+    if llm_model:
+        cfg.setdefault("llm", {})["model"] = str(llm_model)
+
+
+def save_runtime_models(asr_model: str, llm_model: str) -> None:
+    """原子写回所选模型，供重启后记住。"""
+    data = {"asr_model": asr_model, "llm_model": llm_model}
+    RUNTIME_MODELS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = RUNTIME_MODELS_PATH.with_suffix(".yaml.tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
+    os.replace(tmp, RUNTIME_MODELS_PATH)
 
 
 def now_ms() -> int:
