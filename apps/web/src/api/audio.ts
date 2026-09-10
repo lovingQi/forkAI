@@ -27,25 +27,40 @@ export class MicCapture {
   private ctx: AudioContext | null = null
   private stream: MediaStream | null = null
   private node: AudioWorkletNode | ScriptProcessorNode | null = null
+  private mute: GainNode | null = null
   private pending: number[] = []
   private srcRate = TARGET_RATE
+  private onPcm: PcmHandler | null = null
+
+  get running(): boolean {
+    return this.stream != null
+  }
+
+  setHandler(onPcm: PcmHandler) {
+    this.onPcm = onPcm
+  }
 
   async start(onPcm: PcmHandler): Promise<void> {
+    this.onPcm = onPcm
+    if (this.running) return
     this.stream = await navigator.mediaDevices.getUserMedia({
       audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true }
     })
     this.ctx = new AudioContext()
+    if (this.ctx.state === 'suspended') await this.ctx.resume()
     this.srcRate = this.ctx.sampleRate
     const source = this.ctx.createMediaStreamSource(this.stream)
     const emitChunk = (floats: Float32Array) => {
       for (let i = 0; i < floats.length; i++) this.pending.push(floats[i])
-      // 凑够约 100ms 源采样再重采样输出
-      const block = Math.floor(this.srcRate * 0.1)
+      const block = Math.max(1, Math.floor(this.srcRate * 0.1))
       while (this.pending.length >= block) {
         const seg = this.pending.splice(0, block)
-        onPcm(this.toPcm16(seg))
+        this.emitPcm(seg)
       }
     }
+    const mute = this.ctx.createGain()
+    mute.gain.value = 0
+    this.mute = mute
     if (this.ctx.audioWorklet) {
       try {
         const url = URL.createObjectURL(
@@ -56,7 +71,8 @@ export class MicCapture {
         const node = new AudioWorkletNode(this.ctx, 'pcm-tap')
         node.port.onmessage = (e) => emitChunk(e.data as Float32Array)
         source.connect(node)
-        node.connect(this.ctx.destination)
+        node.connect(mute)
+        mute.connect(this.ctx.destination)
         this.node = node
         return
       } catch {
@@ -66,14 +82,32 @@ export class MicCapture {
     const sp = this.ctx.createScriptProcessor(4096, 1, 1)
     sp.onaudioprocess = (e) => emitChunk(e.inputBuffer.getChannelData(0))
     source.connect(sp)
-    sp.connect(this.ctx.destination)
+    sp.connect(mute)
+    mute.connect(this.ctx.destination)
     this.node = sp
+  }
+
+  /** 松手时把不足 100ms 的尾巴也发出去。 */
+  flush() {
+    if (this.pending.length < 2) {
+      this.pending = []
+      return
+    }
+    const seg = this.pending.splice(0)
+    this.emitPcm(seg)
+  }
+
+  private emitPcm(seg: number[]) {
+    if (!this.onPcm || !seg.length) return
+    const buf = this.toPcm16(seg)
+    if (buf.byteLength) this.onPcm(buf)
   }
 
   /** 线性插值重采样到 16kHz，转 PCM16 little-endian。 */
   private toPcm16(seg: number[]): ArrayBuffer {
     const ratio = this.srcRate / TARGET_RATE
-    const nOut = Math.floor(seg.length / ratio)
+    const nOut = Math.max(0, Math.floor(seg.length / ratio))
+    if (!nOut) return new ArrayBuffer(0)
     const out = new Int16Array(nOut)
     for (let i = 0; i < nOut; i++) {
       const pos = i * ratio
@@ -88,9 +122,14 @@ export class MicCapture {
   }
 
   stop() {
+    this.flush()
     if (this.node) {
       this.node.disconnect()
       this.node = null
+    }
+    if (this.mute) {
+      this.mute.disconnect()
+      this.mute = null
     }
     if (this.stream) {
       this.stream.getTracks().forEach((t) => t.stop())
@@ -101,6 +140,7 @@ export class MicCapture {
       this.ctx = null
     }
     this.pending = []
+    this.onPcm = null
   }
 }
 

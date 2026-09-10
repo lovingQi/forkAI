@@ -89,7 +89,7 @@ forkAI 部署在叉车车载工控机，外部实体：
 
 ### 3.8 ASR（`app/asr/cloud.py`、`pcm_wav.py`）
 
-- **云端整句**：PTT 缓冲 PCM → WAV → SiliconFlow `/audio/transcriptions`；超时 5s 抛 ASRError，播 `fail_asr`，不回退 sherpa。
+- **云端整句**：PTT 缓冲 PCM → WAV → SiliconFlow `/audio/transcriptions`；超时 5s 抛 ASRError，播 `fail_asr`，不回退 sherpa。失败在 core 日志打 `ASR fail reason=`（timeout / empty_transcription / http_* / empty_audio 等）及 `pcm_ms`/`peak`。
 - **菜单**：`GET /v1/models?type=audio&sub_type=speech-to-text` 全部 id；打开下拉并行测延迟。
 - **Sherpa / CabinListener**：代码保留，PTT 与 main 不再加载/启动。
 - **实现状态**：云端 PTT 已落地。
@@ -151,11 +151,11 @@ forkAI 部署在叉车车载工控机，外部实体：
 
 - **路由**：hash 路由（`App.vue:70`）：`#/flow` → FlowEditor，否则 Dashboard；未配对显示配对门（6 位码）。头部常驻：车端连接/配对/现场剩余分钟 + 全局"停"按钮。
 - **Dashboard.vue**：左 CanvasView（地图+激光+位姿+路径+车体轮廓画布，右键点"到达 X"→ `control('autodrive')`）；右 StatusPanel（车况/实时数据/叉车信息/IO 位）+ VoiceBar + 任务流入口。
-- **VoiceBar.vue**：PTT 按住说话（鼠标/触摸，或按住空格、松开结束；INPUT/TEXTAREA/选择框内不抢空格）；ASR/LLM 下拉（打开时测延迟且不覆盖当前选中，改选立即写入 runtime_models.yaml，旧探测请求作废）；停止；文本调试（仅 ptt，ASR 识别结果写入该输入框，不自动发送）；识别中/话术/最近 8 条日志；麦不可用降级文本输入。常听与车载通道已去掉。
+- **VoiceBar.vue**：PTT 按住说话（鼠标/触摸，或按住空格、松开结束；INPUT/TEXTAREA/选择框内不抢空格）；麦克风常驻复用，按住期间先本地缓冲再上传，松手 flush 尾巴；ASR/LLM 下拉（打开时测延迟且不覆盖当前选中，改选立即写入 runtime_models.yaml，旧探测请求作废）；停止；文本调试（仅 ptt，ASR 识别结果写入该输入框，不自动发送）；识别中/话术/最近 8 条日志；麦不可用降级文本输入。常听与车载通道已去掉。
 - **FlowEditor.vue**（457 行）：vue-flow 画布，6 种节点，拖拽连线（每节点每类出边限 1 条，点击边切 success/fail），NodePanel 按 `/api/tasks/schemas` 动态渲染参数表单（required/safety 标记），CRUD + 执行/暂停/继续/取消 + 引擎状态标签；节点色环随 `flow_event` 更新；布局存 `flow.ui.positions`；引擎忙时全编辑禁用；**不支持编辑 parallel_groups 和 options**（保存只序列化 nodes/edges/ui，含并行组的流再保存会丢该字段，R-05）。
 - **stores/session.ts**：配对/现场/事件总线状态；TTS 用**常驻 AudioContext** 播 base64（避免 new Audio 重开流吃开头字，配合服务端前导静音垫），失败回退 speechSynthesis；`asr_final` 触发 TTS 打断；`flow_event` 更新流程状态。
 - **stores/robot.ts**：high/low WS 解析进车况 state（pose/vel/laser/path/robot_size/battery/alarm/current_routes/fork_info/IO）。
-- **api 层**：axios Bearer 拦截；WsChannel 2s 自动重连；MicCapture（AudioWorklet 优先、ScriptProcessor 兜底，重采样 16k PCM16）；AudioWs 首帧 `{pairToken, channel}`。
+- **api 层**：axios Bearer 拦截；WsChannel 2s 自动重连；MicCapture（AudioWorklet 优先、ScriptProcessor 兜底，重采样 16k PCM16，静音 Gain 挂图、松手 flush）；AudioWs 首帧 `{pairToken, channel}`。
 
 ## 5. mock-jarvis 与 llm-sidecar 设计
 

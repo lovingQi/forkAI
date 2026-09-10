@@ -18,6 +18,10 @@ _warned_no_key = False
 PROBE_WAV = CORE_ROOT / "assets" / "asr_probe.wav"
 
 
+def _asr_log(msg: str) -> None:
+    print(f"[forkai-core] ASR {msg}", flush=True)
+
+
 class ASRError(Exception):
     """云端识别失败（超时、HTTP、空文本、缺 key）。"""
 
@@ -91,16 +95,23 @@ async def list_asr_models(cfg: dict) -> list[str]:
     return ids
 
 
-async def transcribe(cfg: dict, wav_bytes: bytes, model: str | None = None) -> str:
+async def transcribe(
+    cfg: dict, wav_bytes: bytes, model: str | None = None, *, log: bool = True
+) -> str:
     if not wav_bytes:
+        if log:
+            _asr_log("fail reason=empty_audio")
         raise ASRError("empty_audio")
     key = _api_key(cfg)
     if not key:
+        if log:
+            _asr_log("fail reason=no_key")
         raise ASRError("asr_no_key")
     cloud = _cloud_cfg(cfg)
     base = str(cloud.get("base_url") or "https://api.siliconflow.cn/v1").rstrip("/")
     timeout_s = float(cloud.get("timeout_s", 5))
     use_model = model or current_asr_model(cfg)
+    t0 = time.perf_counter()
     try:
         res = await _client().post(
             f"{base}/audio/transcriptions",
@@ -110,17 +121,51 @@ async def transcribe(cfg: dict, wav_bytes: bytes, model: str | None = None) -> s
             timeout=timeout_s,
         )
     except httpx.TimeoutException as e:
+        ms = int((time.perf_counter() - t0) * 1000)
+        if log:
+            _asr_log(
+                f"fail reason=timeout model={use_model} "
+                f"wav_bytes={len(wav_bytes)} timeout_s={timeout_s} elapsed_ms={ms}"
+            )
         raise ASRError("asr_timeout") from e
     except httpx.HTTPError as e:
+        ms = int((time.perf_counter() - t0) * 1000)
+        if log:
+            _asr_log(
+                f"fail reason=http_error model={use_model} "
+                f"wav_bytes={len(wav_bytes)} elapsed_ms={ms} err={type(e).__name__}"
+            )
         raise ASRError("asr_http") from e
+    ms = int((time.perf_counter() - t0) * 1000)
     if not 200 <= res.status_code < 300:
+        body = (res.text or "")[:240].replace("\n", " ")
+        if log:
+            _asr_log(
+                f"fail reason=http_{res.status_code} model={use_model} "
+                f"wav_bytes={len(wav_bytes)} elapsed_ms={ms} body={body!r}"
+            )
         raise ASRError(f"asr_http_{res.status_code}")
     try:
         text = str(res.json().get("text") or "").strip()
     except Exception as e:
+        if log:
+            _asr_log(
+                f"fail reason=parse model={use_model} "
+                f"wav_bytes={len(wav_bytes)} elapsed_ms={ms} err={e}"
+            )
         raise ASRError("asr_parse") from e
     if not text:
+        if log:
+            _asr_log(
+                f"fail reason=empty_transcription model={use_model} "
+                f"wav_bytes={len(wav_bytes)} elapsed_ms={ms}"
+            )
         raise ASRError("empty_transcription")
+    if log:
+        _asr_log(
+            f"ok model={use_model} wav_bytes={len(wav_bytes)} "
+            f"elapsed_ms={ms} chars={len(text)}"
+        )
     return text
 
 
@@ -134,7 +179,7 @@ async def probe_asr_model(cfg: dict, model: str, wav_bytes: bytes) -> dict:
         }
     t0 = time.perf_counter()
     try:
-        await transcribe(cfg, wav_bytes, model)
+        await transcribe(cfg, wav_bytes, model, log=False)
         ms = int((time.perf_counter() - t0) * 1000)
         return {"id": model, "name": asr_display_name(model), "latencyMs": ms, "error": None}
     except ASRError as e:

@@ -22,7 +22,7 @@ from ..asr.cloud import (
     probe_asr_model,
     transcribe,
 )
-from ..asr.pcm_wav import pcm16_to_wav
+from ..asr.pcm_wav import pcm16_stats, pcm16_to_wav
 from ..config import now_ms, save_runtime_models
 from ..nlu.llm import LLM_CATALOG, LLM_CATALOG_IDS, current_llm_model
 from ..nlu.router import parse_intent
@@ -332,15 +332,30 @@ async def ws_audio(ws: WebSocket):
                 continue
             if not (isinstance(data, dict) and data.get("event") == "end"):
                 continue
-            wav = pcm16_to_wav(bytes(pcm_buf), int((cfg.get("asr") or {}).get("sample_rate", 16000)))
+            sr = int((cfg.get("asr") or {}).get("sample_rate", 16000))
+            pcm = bytes(pcm_buf)
             pcm_buf.clear()
+            stats = pcm16_stats(pcm, sr)
+            model = current_asr_model(cfg)
+            print(
+                f"[forkai-core] ASR submit model={model} pcm_ms={stats['ms']} "
+                f"pcm_bytes={stats['bytes']} peak={stats['peak']}",
+                flush=True,
+            )
+            wav = pcm16_to_wav(pcm, sr)
             if not cloud_asr_enabled(cfg):
+                print("[forkai-core] ASR fail reason=disabled_or_no_key", flush=True)
                 out = await speak_asr_fail()
                 await _ws_send_json(ws, {"type": "final", "text": "", **out})
                 continue
             try:
                 text = await transcribe(cfg, wav)
-            except ASRError:
+            except ASRError as e:
+                print(
+                    f"[forkai-core] ASR fail reason={e} model={model} "
+                    f"pcm_ms={stats['ms']} peak={stats['peak']}",
+                    flush=True,
+                )
                 out = await speak_asr_fail()
                 await _ws_send_json(ws, {"type": "final", "text": "", **out})
                 continue

@@ -106,6 +106,11 @@ let micBroken = false
 let ignoreChange = false
 let loadSeq = 0
 let loadAbort: AbortController | null = null
+let pttGen = 0
+let pttStreaming = false
+let pttReady = false
+let pttFinishing = false
+const pttPrebuf: ArrayBuffer[] = []
 
 function optionLabel(it: VoiceProviderItem) {
   if (it.latencyMs != null) return `${it.name}（${it.latencyMs}ms）`
@@ -209,79 +214,85 @@ async function onLlmChange(id: string) {
   }
 }
 
-function onFinal(msg: AudioFinalMessage) {
-  recognizing.value = false
-  partialText.value = ''
-  if (msg.text) {
-    showAsrInBox(msg.text)
-    session.pushLog(`我说: ${msg.text}`)
+function onMicPcm(pcm: ArrayBuffer) {
+  if (pttStreaming && audioWs) {
+    audioWs.sendPcm(pcm)
+    return
   }
-  if (msg.utterance) session.lastUtterance = msg.utterance
-  if (msg.intent?.name) session.lastIntent = msg.intent.name
-  audioWs?.close()
-  audioWs = null
+  if (pttDown.value || pttFinishing) pttPrebuf.push(pcm)
 }
 
-async function openAudio(): Promise<boolean> {
-  audioWs = new AudioWs(
-    (t) => {
-      partialText.value = t
-      if (t) showAsrInBox(t)
-    },
-    onFinal,
-    () => {
-      recognizing.value = false
-    }
-  )
-  try {
-    await audioWs.connect(getPairToken(), 'ptt')
-  } catch (e: any) {
-    ElMessage.warning(`语音通道不可用：${e?.message || e}，请用文本调试`)
-    audioWs = null
-    return false
+function flushPttToWs() {
+  capture?.flush()
+  if (audioWs) {
+    for (const chunk of pttPrebuf) audioWs.sendPcm(chunk)
   }
-  capture = new MicCapture()
+  pttPrebuf.length = 0
+}
+
+async function ensureMic(): Promise<boolean> {
+  if (micBroken) return false
+  if (!capture) capture = new MicCapture()
+  capture.setHandler(onMicPcm)
+  if (capture.running) return true
   try {
-    await capture.start((pcm) => audioWs?.sendPcm(pcm))
+    await capture.start(onMicPcm)
+    return true
   } catch {
     ElMessage.warning('无法开麦（无权限或无设备），已回退文本输入')
     micBroken = true
     showText.value = true
     capture.stop()
     capture = null
-    audioWs.close()
-    audioWs = null
     return false
   }
-  return true
 }
 
-async function startPtt() {
-  if (pttDown.value) return
-  if (micBroken) {
-    ElMessage.info('麦克风不可用，请用文本调试')
-    return
-  }
-  pttDown.value = true
-  session.listening = true
+function onFinal(msg: AudioFinalMessage, ws: AudioWs) {
+  recognizing.value = false
   partialText.value = ''
-  debugText.value = ''
-  showText.value = true
-  const ok = await openAudio()
-  if (!ok) {
-    pttDown.value = false
-    session.listening = false
+  pttStreaming = false
+  if (msg.text) {
+    showAsrInBox(msg.text)
+    session.pushLog(`我说: ${msg.text}`)
+  }
+  if (msg.utterance) session.lastUtterance = msg.utterance
+  if (msg.intent?.name) session.lastIntent = msg.intent.name
+  if (audioWs === ws) {
+    ws.close()
+    audioWs = null
   }
 }
 
-async function endPtt() {
-  if (!pttDown.value) return
-  pttDown.value = false
-  session.listening = false
-  if (capture) {
-    capture.stop()
-    capture = null
+async function connectAudioWs(): Promise<boolean> {
+  const ws = new AudioWs(
+    (t) => {
+      partialText.value = t
+      if (t) showAsrInBox(t)
+    },
+    (msg) => onFinal(msg, ws),
+    () => {
+      if (audioWs === ws) recognizing.value = false
+    }
+  )
+  audioWs = ws
+  try {
+    await ws.connect(getPairToken(), 'ptt')
+    return audioWs === ws
+  } catch (e: any) {
+    ElMessage.warning(`语音通道不可用：${e?.message || e}，请用文本调试`)
+    if (audioWs === ws) audioWs = null
+    return false
   }
+}
+
+function finishPttUtterance() {
+  if (pttFinishing) return
+  pttFinishing = true
+  pttStreaming = false
+  pttReady = false
+  session.listening = false
+  flushPttToWs()
   if (audioWs) {
     recognizing.value = true
     audioWs.end()
@@ -294,6 +305,48 @@ async function endPtt() {
       }
     }, 20000)
   }
+}
+
+async function startPtt() {
+  if (pttDown.value) return
+  if (micBroken) {
+    ElMessage.info('麦克风不可用，请用文本调试')
+    return
+  }
+  const gen = ++pttGen
+  pttFinishing = false
+  pttReady = false
+  pttStreaming = false
+  pttPrebuf.length = 0
+  pttDown.value = true
+  session.listening = true
+  partialText.value = ''
+  debugText.value = ''
+  showText.value = true
+  const [micOk, wsOk] = await Promise.all([ensureMic(), connectAudioWs()])
+  if (gen !== pttGen) return
+  if (!micOk || !wsOk) {
+    pttDown.value = false
+    session.listening = false
+    pttPrebuf.length = 0
+    audioWs?.close()
+    audioWs = null
+    return
+  }
+  flushPttToWs()
+  pttReady = true
+  if (!pttDown.value) {
+    finishPttUtterance()
+    return
+  }
+  pttStreaming = true
+}
+
+async function endPtt() {
+  if (!pttDown.value) return
+  pttDown.value = false
+  session.listening = false
+  if (pttReady) finishPttUtterance()
 }
 
 async function sendDebug() {
@@ -349,6 +402,7 @@ function onWindowBlur() {
 
 onMounted(() => {
   void loadProviders(false)
+  if (getPairToken()) void ensureMic()
   window.addEventListener('keydown', onSpaceDown)
   window.addEventListener('keyup', onSpaceUp)
   window.addEventListener('blur', onWindowBlur)
