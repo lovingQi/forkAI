@@ -25,7 +25,7 @@ from ..asr.cloud import (
 from ..asr.pcm_wav import pcm16_stats, pcm16_to_wav
 from ..config import now_ms, save_runtime_models
 from ..nlu.llm import LLM_CATALOG, LLM_CATALOG_IDS, current_llm_model
-from ..nlu.router import parse_intent
+from ..nlu.router import LLM_FAIL, clamp_max_intents, parse_intent
 from ..nlu.rules import correct_asr, match_wake_word, wake_word_pattern
 from ..speak import render, resolve_target
 from ..tts.service import synthesize
@@ -104,8 +104,58 @@ async def run_utterance(request: Request, client_id: str, channel: str, text: st
         text = stripped
 
     corrected = correct_asr(text)
-    intent_list = await parse_intent(corrected, getattr(request.app.state, "llm", None))
+    intent_list = await parse_intent(corrected, getattr(request.app.state, "llm", None), cfg)
     ctx = {"client_id": client_id, "channel": channel, "wake_ok": wake_ok, "text": corrected}
+
+    if not intent_list:
+        unknown = {"name": "UNKNOWN", "slots": {}, "raw_text": corrected}
+        return {
+            "succeed": True,
+            "intent": _wire_intent(unknown),
+            "utterance": "",
+            "intents": [],
+        }
+
+    if intent_list[0]["name"] == LLM_FAIL:
+        utterance = render("fail_nlu")
+        spoken = await synthesize(utterance, "fail", cfg)
+        unknown = {"name": "UNKNOWN", "slots": {}, "raw_text": corrected}
+        bus.broadcast(
+            "intent",
+            {
+                "clientId": client_id,
+                "channel": channel,
+                "intent": _wire_intent(unknown),
+                "ok": False,
+                "errorCode": "nlu_fail",
+                "utterance": utterance,
+            },
+        )
+        bus.broadcast(
+            "tts",
+            {
+                "text": spoken["text"],
+                "style": "fail",
+                "target": "device",
+                "audioBase64": spoken["audio_base64"],
+                "ttsEngine": spoken["engine"],
+                "clientId": client_id,
+            },
+        )
+        out = {
+            "succeed": False,
+            "intent": _wire_intent(unknown),
+            "errorCode": "nlu_fail",
+            "utterance": utterance,
+            "intents": [],
+        }
+        if spoken["audio_base64"] is not None:
+            out["audioBase64"] = spoken["audio_base64"]
+        if spoken["engine"]:
+            out["ttsEngine"] = spoken["engine"]
+        out["target"] = "device"
+        return out
+
     wire_intents = [_wire_intent(i) for i in intent_list]
     out: dict | None = None
     # 复合指令：按顺序逐个执行，任一失败即中断并播报该失败；
@@ -156,7 +206,7 @@ async def run_utterance(request: Request, client_id: str, channel: str, text: st
             del out["audioBase64"]
         if not result["ok"] or result.get("awaiting"):
             break
-    if out is None:  # 理论上不会发生（router 至少返回 [UNKNOWN]）
+    if out is None:
         out = {"succeed": False, "intent": {"name": "UNKNOWN", "slots": {}, "rawText": text}}
     # 连续对话 30s 免唤醒（步骤33）：cabin 通道成功处理非纯唤醒意图后滚动续期
     # （纯唤醒词分支已在前面 return；wakeArmMs 已调为 30000）
@@ -223,9 +273,12 @@ async def voice_providers(request: Request, client_id: str = Depends(auth)):
             {"id": item["id"], "name": item["name"], "latencyMs": None, "error": None}
             for item in LLM_CATALOG
         ]
+    nlu = cfg.get("nlu") or {}
     return {
         "asr": {"selected": asr_selected, "items": asr_items},
         "llm": {"selected": llm_selected, "items": llm_items},
+        "nluRulesEnabled": bool(nlu.get("rules_enabled", True)),
+        "nluMaxIntents": clamp_max_intents(nlu.get("max_intents", 5)),
     }
 
 
@@ -241,8 +294,22 @@ async def voice_providers_put(request: Request, client_id: str = Depends(auth)):
         return JSONResponse(status_code=400, content={"succeed": False, "error": "bad_llm"})
     cfg.setdefault("asr", {}).setdefault("cloud", {})["model"] = asr_model
     cfg.setdefault("llm", {})["model"] = llm_model
-    save_runtime_models(asr_model, llm_model)
-    return {"succeed": True, "asrModel": asr_model, "llmModel": llm_model}
+    nlu = cfg.setdefault("nlu", {})
+    if "nluRulesEnabled" in body:
+        nlu["rules_enabled"] = bool(body["nluRulesEnabled"])
+    if "nluMaxIntents" in body:
+        nlu["max_intents"] = clamp_max_intents(body["nluMaxIntents"])
+    nlu.setdefault("rules_enabled", True)
+    nlu.setdefault("max_intents", 5)
+    nlu["max_intents"] = clamp_max_intents(nlu.get("max_intents", 5))
+    save_runtime_models(cfg)
+    return {
+        "succeed": True,
+        "asrModel": asr_model,
+        "llmModel": llm_model,
+        "nluRulesEnabled": bool(nlu.get("rules_enabled", True)),
+        "nluMaxIntents": clamp_max_intents(nlu.get("max_intents", 5)),
+    }
 
 
 # ---- WS /ws/audio：二进制 PCM16 16kHz mono 缓冲 → 云端整句 ASR → run_utterance ----

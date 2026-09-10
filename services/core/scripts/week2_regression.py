@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Week 2 出口检查（步骤34）：9 项一次跑通。
 
-前置：mock-jarvis (:8080)、forkai-core (:19000)、llama-server (:19002) 已启动，
-config 中 wakeArmMs=30000、llm.enabled=true。
-脚本第 8 项会 pkill llama-server（测完不再恢复，跑完请自行重启）。
+前置：mock-jarvis (:8080)、forkai-core (:19000) 已启动；云端 LLM key 用于复合/否定句。
+脚本第 8 项仍会 pkill llama-server（历史侧车，运行时 NLU 已不依赖它）。
 
 用法（services/core 目录下）：.venv/bin/python scripts/week2_regression.py
 """
@@ -54,14 +53,8 @@ def wav_info(b64: str):
 
 
 async def main() -> int:
-    # 预检：llama-server 不在时第 4 项（复合指令走 LLM）必失败，先提示
-    try:
-        async with httpx.AsyncClient(timeout=3) as probe:
-            await probe.get("http://127.0.0.1:19002/health")
-        print("[W2] 预检: llama-server 在线")
-    except Exception:
-        print("[W2] 预检: llama-server 不可达！第4项需要它，请先启动 run-llama-server.sh")
-        return 2
+    # 预检：云端 LLM 承担复合/否定句；llama-server 侧车不再作为运行时 NLU
+    print("[W2] 预检: 复合/否定句走云端 LLM，不依赖 llama-server")
     async with httpx.AsyncClient(timeout=30) as c:
         # ---- 1. 配对 + 现场解锁（已有持锁者时 force 接管，core 跨轮次内存持锁） ----
         code = (await c.post(f"{BASE}/api/pair/start")).json()["code"]
@@ -161,14 +154,30 @@ async def main() -> int:
               f"wake={ok} t25={ok25} t50={ok50}")
         await say(c, token, "停止")
 
-        # ---- 8. 降级：kill llama-server ----
+        # ---- 8. 否定句不得执行被否动作（LLM 失败则整句不执行，禁止顶上规则首命中）----
         subprocess.run(["pkill", "-x", "llama-server"], check=False)
         await asyncio.sleep(1)
         r1 = await say(c, token, "前进")
-        r2 = await say(c, token, "升到2米然后去A区")
-        names = [i["name"] for i in r2.get("intents", [])]
-        ok = r1["succeed"] and r2["succeed"] and names == ["FORK_LIFT_TO"]
-        check("8.LLM降级", ok, f"前进succeed={r1['succeed']} 复合降级intents={names}")
+        r2 = await say(c, token, "不要前进")
+        names2 = [i["name"] for i in r2.get("intents", [])]
+        r3 = await say(c, token, "后退不要前进")
+        names3 = [i["name"] for i in r3.get("intents", [])]
+        utt2 = r2.get("utterance") or ""
+        utt3 = r3.get("utterance") or ""
+        ok_fwd = r1["succeed"] and r1["intent"]["name"] == "MOVE_FWD"
+        ok_neg = "MOVE_FWD" not in names2 and (
+            (not names2 and r2.get("succeed") and utt2 == "")
+            or r2.get("errorCode") == "nlu_fail"
+            or "没听清" in utt2
+        )
+        ok_corr = "MOVE_FWD" not in names3 and (
+            names3 == ["MOVE_BACK"]
+            or r3.get("errorCode") == "nlu_fail"
+            or "没听清" in utt3
+        )
+        check("8.否定句不回落被否动作", ok_fwd and ok_neg and ok_corr,
+              f"前进={r1.get('intent', {}).get('name')} 不要前进={names2}/{utt2!r} "
+              f"后退不要前进={names3}/{utt3!r}")
         await say(c, token, "停止")
 
         # ---- 9. 前端 typecheck + build ----

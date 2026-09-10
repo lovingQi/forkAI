@@ -1,7 +1,7 @@
 """LLMClient：云端 OpenAI 兼容接口做意图抽取。
 
-规则未命中/复合指令时调用。按 cfg["llm"]["model"] 选择 SiliconFlow 或官方 DeepSeek。
-temperature=0、enable_thinking=false；超时/缺 key/解析失败返回 None，降级纯规则。
+规则快路径未命中或关闭时调用。按 cfg["llm"]["model"] 选择 SiliconFlow 或官方 DeepSeek。
+temperature=0、enable_thinking=false；超时/缺 key/解析失败返回 None（整句不执行）。
 """
 import json
 import os
@@ -10,7 +10,7 @@ import time
 
 import httpx
 
-from .prompts import SYSTEM_PROMPT
+from .prompts import system_prompt
 
 _FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
 
@@ -75,8 +75,15 @@ class LLMClient:
         self._client = httpx.AsyncClient()
         self._warned_unreachable = False
 
+    def _max_intents(self) -> int:
+        try:
+            n = int((self._cfg.get("nlu") or {}).get("max_intents", 5))
+        except (TypeError, ValueError):
+            n = 5
+        return max(1, min(8, n))
+
     async def extract(self, text: str) -> list | None:
-        """返回 [{"intent": str, "slots": dict}, ...]（≤3 项）；失败/不可用返回 None。"""
+        """返回 [{"intent": str, "slots": dict}, ...]（≤max_intents）；失败/不可用返回 None。"""
         if not self.enabled:
             return None
         content = await self.raw_content(text)
@@ -87,17 +94,17 @@ class LLMClient:
     async def _chat(self, text: str, model_id: str | None = None) -> tuple[str | None, str | None]:
         ep = resolve_llm(self._cfg, model_id)
         if ep is None:
-            self._warn_once("[forkai-core] llm 未配置 key，降级纯规则 NLU")
+            self._warn_once("[forkai-core] llm 未配置 key，整句不执行")
             return None, "未配置key"
         base_url, api_key, model = ep
         body: dict = {
             "model": model,
             "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": system_prompt(self._max_intents())},
                 {"role": "user", "content": text},
             ],
             "temperature": 0,
-            "max_tokens": 256,
+            "max_tokens": 512,
         }
         item = catalog_item(model_id or current_llm_model(self._cfg))
         if item and item["provider"] == "siliconflow":
@@ -110,10 +117,10 @@ class LLMClient:
                 timeout=self._timeout,
             )
         except httpx.TimeoutException:
-            self._warn_once("[forkai-core] llm 超时，降级纯规则 NLU")
+            self._warn_once("[forkai-core] llm 超时，整句不执行")
             return None, "超时"
         except httpx.HTTPError as e:
-            self._warn_once(f"[forkai-core] llm 不可达，降级纯规则 NLU: {e}")
+            self._warn_once(f"[forkai-core] llm 不可达，整句不执行: {e}")
             return None, "失败"
         if res.status_code == 401:
             self._warn_once("[forkai-core] llm 401，官方 key 无效")
@@ -154,8 +161,7 @@ class LLMClient:
     def reset_warn(self) -> None:
         self._warned_unreachable = False
 
-    @staticmethod
-    def _parse(content: str) -> list | None:
+    def _parse(self, content: str) -> list | None:
         text = (content or "").strip()
         m = _FENCE_RE.search(text)
         if m:
@@ -167,6 +173,7 @@ class LLMClient:
             return None
         if not isinstance(obj, dict) or not isinstance(obj.get("intents"), list):
             return None
+        max_n = self._max_intents()
         out = []
         for item in obj["intents"]:
             if not isinstance(item, dict):
@@ -176,7 +183,7 @@ class LLMClient:
             if not isinstance(intent, str) or not intent:
                 continue
             out.append({"intent": intent, "slots": slots if isinstance(slots, dict) else {}})
-            if len(out) >= 3:
+            if len(out) >= max_n:
                 break
         return out
 

@@ -67,7 +67,11 @@ fork:
   wait: 20
   tolerance: 20
   confirm_threshold: 100
-# LLM 混合 NLU（规则优先；未命中走云端。所选模型以 runtime_models.yaml 为准）
+# NLU：规则快路径可关；关则非停止句全走 LLM。max_intents 1～8
+nlu:
+  rules_enabled: true
+  max_intents: 5
+# LLM 混合 NLU（所选模型以 runtime_models.yaml 为准）
 llm:
   enabled: true
   timeout_s: 10

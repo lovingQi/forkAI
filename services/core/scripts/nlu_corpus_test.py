@@ -16,6 +16,7 @@ CORE_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(CORE_ROOT))
 
 from app.nlu.rules import correct_asr, parse_intent_rule  # noqa: E402
+from app.nlu.router import is_immediate_stop, rule_route  # noqa: E402
 
 # (输入, 期望意图, {slot: 期望值} 或 None)
 CORPUS: list[tuple[str, str, dict | None]] = [
@@ -130,6 +131,34 @@ def run() -> int:
         else:
             failed += 1
             msg = f"  ✗ {text!r:24} 期望 {want_name} 实际 {got_name} {slot_err}"
+            failures.append(msg)
+            print(msg)
+
+    # 规则快路径门限（不调 LLM）
+    gate: list[tuple[str, str, bool]] = [
+        ("前进", "rule", False),
+        ("停止", "rule", True),
+        ("急停", "rule", True),
+        ("升到150毫米", "rule", False),
+        ("后退不要前进", "need_llm", False),
+        ("不要前进", "need_llm", False),
+        ("不要停", "need_llm", False),
+        ("升到2米然后去A区", "need_llm", False),
+    ]
+    for text, want_via, want_stop in gate:
+        via, _ = rule_route(text)
+        stop = is_immediate_stop(text)
+        ok = via == want_via and stop == want_stop
+        if ok:
+            passed += 1
+            if verbose:
+                print(f"  ✓ gate {text!r:24} via={via} stop={stop}")
+        else:
+            failed += 1
+            msg = (
+                f"  ✗ gate {text!r:24} 期望 via={want_via} stop={want_stop} "
+                f"实际 via={via} stop={stop}"
+            )
             failures.append(msg)
             print(msg)
 

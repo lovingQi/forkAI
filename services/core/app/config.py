@@ -8,7 +8,7 @@
 - FORKAI_TTS_API_KEY  云端 TTS/ASR/SiliconFlow LLM Key（不在此处覆盖 yaml）
 - FORKAI_DEEPSEEK_API_KEY  官方 DeepSeek Key（不在此处覆盖 yaml）
 
-界面所选 ASR/LLM 模型写在 config/runtime_models.yaml，启动时合并进 cfg。
+界面所选 ASR/LLM 模型与 NLU 快路径开关写在 config/runtime_models.yaml，启动时合并进 cfg。
 本地密钥写在 config/secrets.yaml（gitignore），仅当对应环境变量为空时注入。
 """
 import os
@@ -63,11 +63,31 @@ def _merge_runtime_models(cfg: dict) -> None:
     llm_model = rt.get("llm_model")
     if llm_model:
         cfg.setdefault("llm", {})["model"] = str(llm_model)
+    nlu = cfg.setdefault("nlu", {})
+    if "nlu_rules_enabled" in rt:
+        nlu["rules_enabled"] = bool(rt["nlu_rules_enabled"])
+    if "nlu_max_intents" in rt:
+        try:
+            nlu["max_intents"] = max(1, min(8, int(rt["nlu_max_intents"])))
+        except (TypeError, ValueError):
+            nlu["max_intents"] = 5
 
 
-def save_runtime_models(asr_model: str, llm_model: str) -> None:
-    """原子写回所选模型，供重启后记住。"""
-    data = {"asr_model": asr_model, "llm_model": llm_model}
+def save_runtime_models(cfg: dict) -> None:
+    """原子写回所选模型与 NLU 快路径设置，供重启后记住。"""
+    asr_model = str((cfg.get("asr") or {}).get("cloud", {}).get("model") or "")
+    llm_model = str((cfg.get("llm") or {}).get("model") or "")
+    nlu = cfg.get("nlu") or {}
+    try:
+        max_n = max(1, min(8, int(nlu.get("max_intents", 5))))
+    except (TypeError, ValueError):
+        max_n = 5
+    data = {
+        "asr_model": asr_model,
+        "llm_model": llm_model,
+        "nlu_rules_enabled": bool(nlu.get("rules_enabled", True)),
+        "nlu_max_intents": max_n,
+    }
     RUNTIME_MODELS_PATH.parent.mkdir(parents=True, exist_ok=True)
     tmp = RUNTIME_MODELS_PATH.with_suffix(".yaml.tmp")
     with open(tmp, "w", encoding="utf-8") as f:

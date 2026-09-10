@@ -135,10 +135,23 @@ export async function getVoiceProviders(probe = false, signal?: AbortSignal) {
   return data as {
     asr: { selected: string; items: VoiceProviderItem[] }
     llm: { selected: string; items: VoiceProviderItem[] }
+    nluRulesEnabled: boolean
+    nluMaxIntents: number
   }
 }
 
-export async function setVoiceProviders(body: { asrModel?: string; llmModel?: string }) {
+export async function setVoiceProviders(body: {
+  asrModel?: string
+  llmModel?: string
+  nluRulesEnabled?: boolean
+  nluMaxIntents?: number
+}) {
   const { data } = await http.put('/voice/providers', body)
-  return data as { succeed: boolean; asrModel: string; llmModel: string }
+  return data as {
+    succeed: boolean
+    asrModel: string
+    llmModel: string
+    nluRulesEnabled: boolean
+    nluMaxIntents: number
+  }
 }

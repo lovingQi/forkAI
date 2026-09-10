@@ -28,5 +28,6 @@
 | fail_lock | 失败：无点动控制权 | 错误 |
 | fail_unknown | 失败：未识别指令 | 错误 |
 | fail_asr | 失败：识别失败 | 错误 |
+| fail_nlu | 没听清，请再说一次 | NLU/LLM 超时或非 JSON，整句不执行 |
 | fail_goto | 失败：站点无效 | 错误 |
 | fail_generic | 失败：{reason} | 错误 |

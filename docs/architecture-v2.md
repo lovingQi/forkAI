@@ -17,7 +17,7 @@
 │  forkai-core（FastAPI，:19000）               │
 │  ├─ api/        REST + WS 路由                │
 │  ├─ asr/        云端整句识别（SiliconFlow）     │
-│  ├─ nlu/        规则 → 云端 LLM → UNKNOWN      │
+│  ├─ nlu/        规则快路径（可关）→ 云端 LLM     │
 │  ├─ executor    意图执行 + 分级锁定             │
 │  ├─ tasks/      参数schema + ParamDialogue    │
 │  ├─ taskflow/   任务流引擎（校验/存储/执行/匹配）│
@@ -45,9 +45,9 @@
 | asr.stream | app/asr/stream.py | 本地流式封装（PTT 不再使用） |
 | asr.capture | app/asr/capture.py | CabinListener 保留但 main 不再启动 |
 | nlu.rules | app/nlu/rules.py | 正则意图全表 + 唤醒词同音字模糊匹配 + ASR 纠偏表 |
-| nlu.llm | app/nlu/llm.py | 云端 chat/completions（SiliconFlow / 官方 DeepSeek），JSON 校验，静默降级 |
-| nlu.router | app/nlu/router.py | 规则→LLM→UNKNOWN；规则命中覆盖率判断分流复合指令 |
-| nlu.prompts | app/nlu/prompts.py | LLM 意图白名单 + system prompt（同音还原 + few-shot） |
+| nlu.llm | app/nlu/llm.py | 云端 chat/completions（SiliconFlow / 官方 DeepSeek），JSON 校验；失败整句不执行 |
+| nlu.router | app/nlu/router.py | STOP 快路径；规则门限（残余/否定）决定是否交 LLM；禁止失败回落规则首命中 |
+| nlu.prompts | app/nlu/prompts.py | 闭集理解器 prompt（否定/单位/最多 N 条）+ 意图白名单 |
 | executor | app/executor.py | 意图执行：点动/货叉/任务/查询/流控 + 对话整合 + 分级锁定 |
 | tasks.schemas | app/tasks/schemas.py | TASK_* 参数 schema（required/safety/default/追问话术/确认策略） |
 | tasks.dialogue | app/tasks/dialogue.py | ParamDialogue 追问/确认/取消状态机（30s 惰性超时） |

@@ -48,6 +48,24 @@
           :value="it.id"
         />
       </el-select>
+      <el-switch
+        v-model="nluRulesEnabled"
+        size="small"
+        inline-prompt
+        active-text="规则"
+        inactive-text="全LLM"
+        @change="onNluRulesChange"
+      />
+      <span class="sub">最多</span>
+      <el-input-number
+        v-model="nluMaxIntents"
+        :min="1"
+        :max="8"
+        size="small"
+        controls-position="right"
+        class="max-intents"
+        @change="onMaxIntentsChange"
+      />
       <el-button type="danger" @click="onStop">停</el-button>
       <el-button @click="showText = !showText">文本调试</el-button>
     </div>
@@ -90,6 +108,8 @@ const recognizing = ref(false)
 const partialText = ref('')
 const asrModel = ref('')
 const llmModel = ref('')
+const nluRulesEnabled = ref(true)
+const nluMaxIntents = ref(5)
 const asrItems = ref<VoiceProviderItem[]>([])
 const llmItems = ref<VoiceProviderItem[]>([])
 const textPlaceholder = computed(() => {
@@ -183,6 +203,8 @@ async function loadProviders(probe: boolean) {
         llmItems.value = ensureSelected(data.llm.items || [], data.llm.selected || llmModel.value)
         if (data.asr.selected) asrModel.value = data.asr.selected
         if (data.llm.selected) llmModel.value = data.llm.selected
+        if (typeof data.nluRulesEnabled === 'boolean') nluRulesEnabled.value = data.nluRulesEnabled
+        if (typeof data.nluMaxIntents === 'number') nluMaxIntents.value = data.nluMaxIntents
       }
     })
   } catch (e: any) {
@@ -214,6 +236,24 @@ async function onLlmChange(id: string) {
     await setVoiceProviders({ llmModel: id })
   } catch (e: any) {
     ElMessage.error(e?.message || '保存 LLM 失败')
+  }
+}
+
+async function onNluRulesChange(on: boolean | string | number) {
+  if (ignoreChange) return
+  try {
+    await setVoiceProviders({ nluRulesEnabled: Boolean(on) })
+  } catch (e: any) {
+    ElMessage.error(e?.message || '保存规则快路径失败')
+  }
+}
+
+async function onMaxIntentsChange(n: number | undefined) {
+  if (ignoreChange || n == null) return
+  try {
+    await setVoiceProviders({ nluMaxIntents: n })
+  } catch (e: any) {
+    ElMessage.error(e?.message || '保存意图条数失败')
   }
 }
 
@@ -451,6 +491,9 @@ onBeforeUnmount(() => {
 }
 .model-select {
   width: 220px;
+}
+.max-intents {
+  width: 110px;
 }
 .sub {
   color: #6b7280;

@@ -76,7 +76,7 @@ jarvis 车端（真实车辆程序）      llama-server（NLU 兜底侧车）
 
 ### FR-01 语音交互链路
 
-- **描述**：语音/文本输入 → sherpa-onnx 流式 ASR（端点检测 + PTT 手动结束）→ ASR 同音误识别纠偏 → 混合 NLU（规则正则优先 → Qwen2-0.5B LLM 兜底；复合指令拆分最多 3 个动作；意图白名单校验；LLM 不可达自动降级纯规则）→ 执行 → piper TTS 播报（失败回退浏览器 speechSynthesis）。
+- **描述**：语音/文本输入 → 云端整句 ASR → ASR 同音纠偏 → 混合 NLU（规则快路径可关；否定/复合走云端 LLM；白名单校验；空列表静默；LLM 失败播「没听清」且不回落规则首命中）→ 执行 → TTS 播报（云端缓存 / piper / 浏览器朗读）。
 - **来源**：requirements-v2.md §2.1；实现 `services/core/app/asr/`、`app/nlu/`、`app/tts/`、`app/api/routes_voice.py`。
 - **验收要点**：x86 RTF<1；LLM 不可达时规则链路不受影响；纠偏表生效；文本链路 `/api/voice/text` 与音频链路 `/ws/audio` 结果一致。
 

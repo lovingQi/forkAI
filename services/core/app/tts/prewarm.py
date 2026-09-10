@@ -34,6 +34,7 @@ def build_prewarm_texts(cfg: dict, flow_names: list[str]) -> list[str]:
         "fail_no_site",
         "fail_lock",
         "fail_unknown",
+        "fail_nlu",
         "fail_goto",
         "fail_flow_running",
         "flow_low_battery",

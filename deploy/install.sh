@@ -319,6 +319,9 @@ fork:
   wait: 20
   tolerance: 20
   confirm_threshold: 100
+nlu:
+  rules_enabled: true
+  max_intents: 5
 llm:
   enabled: true
   timeout_s: 10
