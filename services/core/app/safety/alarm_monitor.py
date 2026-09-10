@@ -10,7 +10,7 @@
 import asyncio
 
 from ..speak import render
-from ..tts.piper import synthesize
+from ..tts.service import synthesize
 
 _POLL_S = 2.0
 
@@ -51,6 +51,7 @@ class AlarmMonitor:
                     sessions.end_site("", force=True)
                     bus.broadcast("site_changed", {"holderClientId": None, "reason": "estop"})
                     text = render("alarm_estop_exit")
+                    spoken = {}
                     try:
                         spoken = await synthesize(text, "fail", cfg)
                         audio = spoken.get("audio_base64")
@@ -58,8 +59,14 @@ class AlarmMonitor:
                         audio = None
                     bus.broadcast(
                         "tts",
-                        {"text": text, "style": "fail", "target": "both",
-                         "audioBase64": audio, "clientId": None},
+                        {
+                            "text": text,
+                            "style": "fail",
+                            "target": "both",
+                            "audioBase64": audio,
+                            "ttsEngine": spoken.get("engine"),
+                            "clientId": None,
+                        },
                     )
                     print("[forkai-core] 检测到急停，已强制退出现场模式")
                 elif alarm != "estop":

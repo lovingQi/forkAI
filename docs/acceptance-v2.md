@@ -30,7 +30,7 @@ cd services/core && .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 19000
 |-------------|-------------|
 | 1 配对 | week2 #1 配对+解锁 |
 | 2 现场解锁 | week2 #1（409 自动 force 接管） |
-| 3 前进话术 | week2 #2 点动 MOVE_FWD；#6 提示音前缀 |
+| 3 前进话术 | week2 #2 点动 MOVE_FWD；#6 TTS 音频有效性 |
 | 4 看门狗 2s 自动停 | mock 日志 action=stop（week2 #2 后自动发生） |
 | 5 调速话术 | week2 前置链路覆盖（speed_set 意图单测 rules） |
 | 6 停止 | week2 #7 后"停止"；week3 #6 锁定中停止放行 |
@@ -70,7 +70,7 @@ cd services/core && .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 19000
 |------|------|---------------------|
 | ASR | RTF<1（延迟<1s） | RTF≈0.06（num_threads=1，14M int8）；RK3588 待复核 |
 | LLM 意图抽取 | <3s | 0.5B Q4_K_M 本地 <1s；超时上限 timeout_s=3 可配 |
-| TTS | — | piper RTF≈0.1 |
+| TTS | — | piper RTF≈0.1；云端 CosyVoice2 短句中位约 700ms（x86 开发机实测） |
 | 任务成功率 | >95% | 试点统计方法：文本日志（保留 7 天）中 intents ok=true 占比，按周统计；mock 环境回归 100% 不构成试点数据 |
 
 ## 6. 真车待办清单（人工项）
@@ -79,6 +79,6 @@ cd services/core && .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 19000
 2. **步骤50（ASR 真机）**：RK3588 上 sherpa-onnx aarch64 推理 RTF/线程数复核；麦克风采集（cabin_listen.enabled）实测。
 3. **步骤51（LLM 真机）**：llama.cpp aarch64 编译（-DGGML_NATIVE=OFF）与 Qwen2-0.5B/1.5B 选型复核。
 4. **步骤58（试点部署）**：整车联调、站点名大小写口径确认（当前 norm 小写化）、音区实测唤醒率。
-5. 提示音音量/音色真机听感确认（assets/beep_*.wav 可替换）。
+5. 云端 TTS 音色/音量真机听感确认。
 
 —— 真车联调完成后填 docs/test-report.md（本版不含）。

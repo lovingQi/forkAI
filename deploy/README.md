@@ -36,6 +36,7 @@ sudo JARVIS_BASE_URL=http://127.0.0.1:10000 bash deploy/install.sh
 | `FORKAI_PORT` | `19000` | core 端口（外部访问入口） |
 | `LLM_PORT` | `19002` | llm 侧车端口（仅本机） |
 | `VEHICLE_ID` | `fork-01` | 车辆编号 |
+| `TTS_API_KEY` | 空 | 写入 systemd `FORKAI_TTS_API_KEY`（SiliconFlow）；空则 TTS 回退 piper |
 | `NODE_VER` | `v20.18.1` | Node 版本（前端构建用） |
 | `PIP_INDEX` | 阿里云镜像 | pip 源，可改 |
 | `LLAMA_VER` | `b10256` | llama.cpp 版本 |
@@ -81,6 +82,9 @@ curl http://127.0.0.1:19002/health          # {"status":"ok"}
 # ASR/TTS 端到端自检（piper 合成 → sherpa 识别，应输出 PASS）
 cd /usr/local/forkai/services/core && .venv/bin/python scripts/asr_offline_test.py
 
+# 云端 TTS 缓存链路（需 FORKAI_TTS_API_KEY）
+cd /usr/local/forkai/services/core && .venv/bin/python scripts/tts_cloud_test.py
+
 # 服务状态/日志
 systemctl status forkai-core forkai-llm
 journalctl -u forkai-core -f
@@ -103,7 +107,8 @@ cd /usr/local/forkai
 - **llama-server 启动失败**：`journalctl -u forkai-llm -f` 看模型路径；GGUF 必须完整（397,805,248 字节），下载中断的文件会报 tensor out of bounds——删掉重下。
 - **模型下载慢/失败**：LLM 默认走 ModelScope，备选 hf-mirror（改 install.sh 的 fetch 第二参数已内置）；pip 用阿里云镜像（`PIP_INDEX` 可换）。
 - **core 起不来**：看 `journalctl -u forkai-core`；确认 venv 存在（`services/core/.venv/bin/python --version` ≥3.10）。
-- **TTS 无声/英文音**：piper 未就绪时自动回退 mock（前端浏览器朗读）。检查 `services/core/models/piper/piper/piper` 可执行、模型文件齐全。
+- **TTS 无声/英文音**：piper 未就绪且云端也不可用时自动回退 mock（前端浏览器朗读）。检查 `services/core/models/piper/piper/piper` 可执行、模型文件齐全。
+- **云端 TTS 不可用**：自动回退 piper（声音会变）。配置 Key：安装时 `sudo TTS_API_KEY=sk-... bash deploy/install.sh`，或在 `/etc/systemd/system/forkai-core.service` 设置 `Environment=FORKAI_TTS_API_KEY=...` 后 `systemctl daemon-reload && systemctl restart forkai-core`。开发机 `export FORKAI_TTS_API_KEY=...` 再 `./start-v2.sh`。
 - **内存占用预期**：core（含 sherpa ASR + piper）≈1GB；llama-server（Qwen2-0.5B Q4_K_M，ctx 2048）≈0.5GB；合计约 1.5GB，8GB 整机余量充足。systemd 已加 MemoryMax 保护（core 4G / llm 2G）。
 - **V1 旧服务残留**：install.sh 会自动 stop/disable 并删除 forkai-gateway、forkai-speech 单元；旧目录 services/voice-gateway、services/speech 保留在仓库中但不再启动。
 

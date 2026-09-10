@@ -17,7 +17,7 @@ forkAI 是叉车的全离线中文语音控制与任务流编排系统。V2 采�
 
 - ASR：sherpa-onnx 流式 zipformer 中文 int8 模型，16kHz 单声道 PCM16，端点检测 + PTT 手动结束；开发机实测 RTF≈0.06（x86），目标 RK3588 CPU 推理延迟 <1s（部署复核）。
 - NLU：混合架构——规则正则优先；规则未命中或命中后残余文本仍含意图（复合指令）→ Qwen2-0.5B-Instruct（Q4_K_M，llama-server OpenAI 兼容接口）；LLM 输出经意图白名单校验，首个数值槽位以规则换算为准；LLM 不可达自动降级纯规则。
-- TTS：piper zh_CN-huayan-medium，subprocess 调用；合成失败回退（audioBase64=null，前端浏览器 speechSynthesis）。
+- TTS：云端 CosyVoice2 + 本地缓存，piper 兜底。
 
 ### 2.2 六任务
 
@@ -50,7 +50,6 @@ forkAI 是叉车的全离线中文语音控制与任务流编排系统。V2 采�
 ### 2.6 语音体验
 
 - 唤醒词可配置（默认"玖物玖物/玖物，玖物/九物九物"，ASR 同音字等价组模糊匹配）。
-- 成功/失败提示音（880Hz 120ms / 220Hz 300ms，服务端 PCM 前缀拼接，speak.beep 可关）。
 - TTS 可打断（识别出 final 指令广播 asr_final，前端停播）。
 - 连续对话 30 秒免唤醒（wakeArmMs=30000，cabin 成功处理后滚动续期）。
 
@@ -63,7 +62,7 @@ forkAI 是叉车的全离线中文语音控制与任务流编排系统。V2 采�
 
 ### 2.8 隐私与安全
 
-全离线（ASR/NLU/TTS 全部本地）；日志记录文本不录音频，7 天删除；配对/现场码见 2.5。
+ASR/NLU 全离线；TTS 联网增强、本地缓存与 piper 兜底；出网内容仅为模板话术文本；日志记录文本不录音频，7 天删除；配对/现场码见 2.5。
 
 ## 3. 硬件目标
 

@@ -9,6 +9,7 @@
 ## 启动与停止
 
 - 一键启动 V2：`./start-v2.sh`（幂等，日志在 `/tmp/forkai-v2/`）。
+- 云端 TTS 需先 `export FORKAI_TTS_API_KEY=...`，未设置时自动回退 piper。
 - 前端热更新：`npm run dev:web`（vite :5173，代理到 :19000）。
 - 入口：http://127.0.0.1:19000/（core 静态托管 apps/web/dist）。
 - 停止：`pkill -f 'mock-jarvis/src/index.js'; pkill -f 'llama-server'; pkill -f 'uvicorn app.main:app'`。
@@ -69,6 +70,7 @@
 | `apps/web` | Web typecheck + Web build + 受影响 Playwright 用例 |
 | 配对、现场锁、语音、流程编辑器、急停 UI | Node 20+ 下运行受影响 `tests/e2e/specs` |
 | Mock 或车端协议映射 | `protocol_conformance.py` + 受影响 Week 回归；必要时保留真车待验状态 |
+| `tts/*` | `tts_cloud_test.py` + `week2_regression.py` |
 | 稳定性、故障处理 | `soak_test.py` 或对应故障注入，记录时长与环境 |
 
 - 运行脚本前读取脚本头部的服务前置条件。只运行与变更相关的验证，但必须报告跳过项和原因。

@@ -22,7 +22,7 @@ CORE_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(CORE_ROOT))
 
 from app.config import load_config  # noqa: E402
-from app.tts.piper import synthesize  # noqa: E402
+from app.tts.piper import synthesize_piper as synthesize  # noqa: E402
 
 TARGETS = ["前进", "电量多少"]
 

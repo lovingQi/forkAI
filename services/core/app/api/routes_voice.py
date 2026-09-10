@@ -18,7 +18,7 @@ from ..config import now_ms
 from ..nlu.router import parse_intent
 from ..nlu.rules import correct_asr, match_wake_word, wake_word_pattern
 from ..speak import render, resolve_target
-from ..tts.piper import synthesize
+from ..tts.service import synthesize
 from .deps import auth, read_body
 
 router = APIRouter()
@@ -60,6 +60,7 @@ async def run_utterance(request: Request, client_id: str, channel: str, text: st
                 "style": "wake",
                 "target": "vehicle",
                 "audioBase64": spoken["audio_base64"],
+                "ttsEngine": spoken["engine"],
                 "clientId": client_id,
             },
         )
@@ -85,6 +86,7 @@ async def run_utterance(request: Request, client_id: str, channel: str, text: st
                     "style": "wake",
                     "target": "device",
                     "audioBase64": spoken["audio_base64"],
+                    "ttsEngine": spoken["engine"],
                     "clientId": client_id,
                 },
             )
@@ -125,6 +127,7 @@ async def run_utterance(request: Request, client_id: str, channel: str, text: st
                 "style": result["speak_style"],
                 "target": target,
                 "audioBase64": spoken["audio_base64"],
+                "ttsEngine": spoken["engine"],
                 "clientId": client_id,
             },
         )
@@ -134,6 +137,7 @@ async def run_utterance(request: Request, client_id: str, channel: str, text: st
             "errorCode": result.get("error_code"),
             "utterance": utterance,
             "audioBase64": spoken["audio_base64"],
+            "ttsEngine": spoken["engine"],
             "target": target,
         }
         if out["errorCode"] is None:

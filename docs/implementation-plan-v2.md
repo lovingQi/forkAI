@@ -152,6 +152,7 @@ docs/requirements-v2.md, architecture-v2.md, api-v2.md, user-manual.md, acceptan
 - [x] 57. 更新 deploy/install.sh：Miniconda Python环境 + 依赖 + 模型下载（ModelScope优先）+ llama.cpp源码编译 + forkai-core/forkai-llm 双service + 旧单元迁移 + .offline-assets离线模式
 - [ ] 58. RK3588工控机干净环境部署演练 + 全流程冒烟——**需真机**
 - [ ] 59. Week 4出口检查：验收清单全过 + 文档齐套 + 交付演示——**待真车项完成后收口**
+- [x] 60. TTS 云端增强（路线 B）：缓存 → CosyVoice2 → piper → mock；去掉提示音；启动预热
 
 ## 四、关键风险与降级预案
 

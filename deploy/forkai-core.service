@@ -9,6 +9,7 @@ WorkingDirectory=/usr/local/forkai/services/core
 Environment=JARVIS_BASE_URL=http://127.0.0.1:8080
 Environment=FORKAI_PORT=19000
 Environment=VEHICLE_ID=fork-01
+Environment=FORKAI_TTS_API_KEY=
 ExecStart=/usr/local/forkai/services/core/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 19000
 Restart=always
 RestartSec=2

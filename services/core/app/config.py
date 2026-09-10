@@ -5,6 +5,7 @@
 - JARVIS_BASE_URL     覆盖 jarvis.baseUrl
 - FORKAI_PORT         覆盖 server.port
 - VEHICLE_ID          覆盖 vehicleId
+- FORKAI_TTS_API_KEY  云端 TTS Key（由 tts.cloud.api_key_env 指定，不在此处覆盖 yaml）
 """
 import os
 from pathlib import Path

@@ -29,6 +29,7 @@ JARVIS_BASE_URL="${JARVIS_BASE_URL:-http://127.0.0.1:8080}"   # 真车 jarvis we
 FORKAI_PORT="${FORKAI_PORT:-19000}"
 LLM_PORT="${LLM_PORT:-19002}"
 VEHICLE_ID="${VEHICLE_ID:-fork-01}"
+TTS_API_KEY="${TTS_API_KEY:-}"
 PIP_INDEX="${PIP_INDEX:-https://mirrors.aliyun.com/pypi/simple/}"  # 阿里云镜像加速，可改
 
 log()  { echo -e "\033[1;32m[install]\033[0m $*"; }
@@ -82,6 +83,7 @@ EXCLUDES=(
   --exclude '.node20' --exclude '.miniconda' --exclude '.git'
   --exclude 'services/speech/piper'
   --exclude 'services/core/models/piper' --exclude 'services/core/models/asr'
+  --exclude 'services/core/assets'
   --exclude 'services/core/models/llm' --exclude 'services/core/.venv'
   --exclude 'services/llm-sidecar/src' --exclude 'services/llm-sidecar/bin'
   --exclude 'dist' --exclude '**/dist'
@@ -95,6 +97,7 @@ else
     --exclude='./.node20' --exclude='./.miniconda' --exclude='./.git' \
     --exclude='./services/speech/piper' \
     --exclude='./services/core/models/piper' --exclude='./services/core/models/asr' \
+    --exclude='./services/core/assets' \
     --exclude='./services/core/models/llm' --exclude='./services/core/.venv' \
     --exclude='./services/llm-sidecar/src' --exclude='./services/llm-sidecar/bin' \
     --exclude='./dist' --exclude='./**/dist' \
@@ -275,7 +278,17 @@ speak:
   cabinMove: vehicle
   pttMove: both
   query: device
-  beep: true
+tts:
+  cloud:
+    enabled: true
+    base_url: https://api.siliconflow.cn/v1
+    model: FunAudioLLM/CosyVoice2-0.5B
+    voice: anna
+    timeout_s: 1.5
+    api_key_env: FORKAI_TTS_API_KEY
+  cache_dir: data/tts_cache
+  cache_max_files: 5000
+  prewarm_on_startup: true
 piper:
   bin: models/piper/piper/piper
   libDir: models/piper/piper
@@ -351,6 +364,7 @@ WorkingDirectory=$CORE_DIR
 Environment=JARVIS_BASE_URL=$JARVIS_BASE_URL
 Environment=FORKAI_PORT=$FORKAI_PORT
 Environment=VEHICLE_ID=$VEHICLE_ID
+Environment=FORKAI_TTS_API_KEY=$TTS_API_KEY
 ExecStart=$CORE_DIR/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port $FORKAI_PORT
 Restart=always
 RestartSec=2

@@ -28,7 +28,7 @@
 
 | 方法 | 路径 | 请求体 | 响应 |
 |------|------|--------|------|
-| POST | /api/voice/text | `{"text":"前进","channel":"ptt"\|"cabin"}` | `{"succeed":true,"intent":{name,slots,rawText},"utterance":"好的，前进","audioBase64":"...","target":"both","intents":[...]}`；空文本 `400 {"succeed":false,"error":"empty"}` |
+| POST | /api/voice/text | `{"text":"前进","channel":"ptt"\|"cabin"}` | `{"succeed":true,"intent":{name,slots,rawText},"utterance":"好的，前进","audioBase64":"...","ttsEngine":"cloud-cache","target":"both","intents":[...]}`；空文本 `400 {"succeed":false,"error":"empty"}` |
 | POST | /api/voice/stop | — | 等价于以 ptt 通道执行"停止" |
 
 响应说明：`errorCode`/`audioBase64` 为空时省略该键；`intents` 为完整意图数组（复合指令多元素）；追问/待确认时 `utterance` 为追问或确认话术（如 `请告诉我起点`、`确认执行任务流取货演示流程吗`）。
@@ -68,7 +68,7 @@
 2. 之后二进制帧 = PCM16 16kHz mono 音频块。
 3. 下行 JSON 帧：
    - `{"type":"partial","text":"..."}` 实时部分识别
-   - `{"type":"final","text":"前进","succeed":true,"intent":{...},"utterance":"...","audioBase64":"...","target":"...","intents":[...]}`（与 /api/voice/text 响应同构）
+   - `{"type":"final","text":"前进","succeed":true,"intent":{...},"utterance":"...","audioBase64":"...","ttsEngine":"...","target":"...","intents":[...]}`（与 /api/voice/text 响应同构）
    - `{"type":"error","error":"asr_unavailable: ..."}`
 4. 文本帧 `{"event":"end"}` = 手动结束（PTT 松开）→ flush 出 final；端点检测自动出 final。PTT 一次 final 后流重置可继续下一句；cabin 持续循环。
 
@@ -78,7 +78,7 @@
 
 | type | payload | 时机 |
 |------|---------|------|
-| tts | `{text,style,target,audioBase64,clientId}` | 每次话术播报（含唤醒应答/低电量/急停） |
+| tts | `{text,style,target,audioBase64,ttsEngine,clientId}` | 每次话术播报（含唤醒应答/低电量/急停） |
 | intent | `{clientId,channel,intent,ok,errorCode,utterance}` | 每个意图执行后 |
 | site_changed | `{holderClientId,expiresAt,stolen}` 或 `{holderClientId:null,reason?}` | 解锁/结束/急停强制退出 |
 | watchdog_stop | `{}` | 看门狗超时自动停车 |

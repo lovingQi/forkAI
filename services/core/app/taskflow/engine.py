@@ -17,7 +17,7 @@ import math
 
 from ..jarvis.routes_builder import build_route
 from ..speak import render
-from ..tts.piper import synthesize
+from ..tts.service import synthesize
 from .schema import build_units, _group_map
 
 
@@ -538,6 +538,7 @@ class FlowEngine:
         self._emit()
         # TTS 广播话术（复用 piper 合成，前端走既有 tts 事件播放）
         text = render("flow_low_battery")
+        spoken = {}
         try:
             spoken = await synthesize(text, "fail", self._cfg)
             audio = spoken.get("audio_base64")
@@ -545,7 +546,14 @@ class FlowEngine:
             audio = None
         self._bus.broadcast(
             "tts",
-            {"text": text, "style": "fail", "target": "both", "audioBase64": audio, "clientId": None},
+            {
+                "text": text,
+                "style": "fail",
+                "target": "both",
+                "audioBase64": audio,
+                "ttsEngine": spoken.get("engine"),
+                "clientId": None,
+            },
         )
         # 自动下发充电路线（独立于流，直接调度）
         try:

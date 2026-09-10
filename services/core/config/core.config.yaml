@@ -21,9 +21,19 @@ speak:
   cabinMove: vehicle
   pttMove: both
   query: device
-  beep: true
-  leadSilenceMs: 250
-# TTS 内置：直接调 piper CLI（路径相对 services/core 目录）
+# TTS：云端 CosyVoice2 + 本地缓存，piper 兜底
+tts:
+  cloud:
+    enabled: true
+    base_url: https://api.siliconflow.cn/v1
+    model: FunAudioLLM/CosyVoice2-0.5B
+    voice: anna          # 按试听结果替换
+    timeout_s: 1.5
+    api_key_env: FORKAI_TTS_API_KEY
+  cache_dir: data/tts_cache
+  cache_max_files: 5000
+  prewarm_on_startup: true
+# TTS 内置兜底：直接调 piper CLI（路径相对 services/core 目录）
 piper:
   bin: models/piper/piper/piper
   libDir: models/piper/piper

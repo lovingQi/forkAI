@@ -2,7 +2,7 @@
 """Week 2 出口检查（步骤34）：9 项一次跑通。
 
 前置：mock-jarvis (:8080)、forkai-core (:19000)、llama-server (:19002) 已启动，
-config 中 speak.beep=true、wakeArmMs=30000、llm.enabled=true。
+config 中 wakeArmMs=30000、llm.enabled=true。
 脚本第 8 项会 pkill llama-server（测完不再恢复，跑完请自行重启）。
 
 用法（services/core 目录下）：.venv/bin/python scripts/week2_regression.py
@@ -137,18 +137,13 @@ async def main() -> int:
         )
         check("5.问答三连", ok, f"{r1['utterance']!r} / {r2['utterance']!r} / {r3['utterance']!r}")
 
-        # ---- 6. 提示音（前导静音垫≈250ms + beep 前缀样本级一致 + 时长差） ----
+        # ---- 6. TTS 音频有效性（可解析 WAV、采样率 22050 或 24000、时长 0.3~10s） ----
         r = await say(c, token, "前进")
-        with wave.open(str(CORE_ROOT / "assets" / "beep_ok.wav"), "rb") as w:
-            beep_frames = w.readframes(w.getnframes())
-            beep_dur = w.getnframes() / w.getframerate()
         rate, dur, frames = wav_info(r["audioBase64"])
-        pad = int(rate * 0.25) * 2  # leadSilenceMs=250，16bit 单声道
-        pad_ok = frames[:pad] == b"\x00" * pad
-        prefix_ok = frames[pad : pad + len(beep_frames)] == beep_frames
-        dur_ok = dur > 0.25 + beep_dur + 0.3
-        check("6.提示音拼接", pad_ok and prefix_ok and dur_ok,
-              f"静音垫:{pad_ok} 前缀==beep_ok:{prefix_ok} 总时长={dur:.2f}s(beep {beep_dur:.2f}s)")
+        engine = r.get("ttsEngine")
+        ok = rate in (22050, 24000) and 0.3 <= dur <= 10 and len(frames) > 0
+        check("6.TTS 音频有效性", ok,
+              f"ttsEngine={engine} rate={rate} 时长={dur:.2f}s bytes={len(frames)}")
 
         # ---- 7. 连续对话 30s 免唤醒（滚动续期：t=0/25/50 三次 cabin 指令） ----
         r = await say(c, token, "玖物玖物", channel="cabin")

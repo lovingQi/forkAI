@@ -27,7 +27,7 @@ sys.path.insert(0, str(CORE_ROOT))
 
 from app.config import load_config  # noqa: E402
 from app.nlu.rules import correct_asr  # noqa: E402
-from app.tts.piper import synthesize  # noqa: E402
+from app.tts.piper import synthesize_piper as synthesize  # noqa: E402
 
 # 覆盖 6 任务 + 问答 + 唤醒 + 任务流控制的代表性指令
 UTTERANCES = [

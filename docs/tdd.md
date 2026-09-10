@@ -93,11 +93,11 @@ forkAI 部署在叉车车载工控机，外部实体：
 - **CabinListener（capture.py）**：`cabin_listen.enabled=true` 时 sounddevice 读 ALSA 麦 16kHz 喂 ASRStream，final 走 `run_utterance(channel="cabin")`；**默认关闭**；无配对上下文时 clientId 取现场锁持有者（无则 "cabin" 占位）。
 - **实现状态**：已完成（x86 RTF≈0.06）；车载常听真机未实测。
 
-### 3.9 TTS 与话术（`app/tts/piper.py`、`app/speak.py`）
+### 3.9 TTS 与话术（`app/tts/service.py`、`cloud.py`、`cache.py`、`prewarm.py`、`piper.py`、`app/speak.py`）
 
-- **piper 封装**：subprocess 调 piper CLI（LD_LIBRARY_PATH 指向库目录，stdin 写文本）；**拉丁字母→中文读音字转写**（"p1点" 不念 "崩点"）；style=ok/fail 拼 beep 前缀（`assets/beep_ok.wav`/`beep_fail.wav`，纯 PCM 拼接重写 wav 头）；**前导静音垫**（默认 250ms，盖设备唤醒延迟）；piper 不可用回退 `engine:"mock"` audio=None → 前端 speechSynthesis 兜底。
+- **合成链**：本地缓存 → 云端 CosyVoice2（超时 1.5s，WAV 头修正）→ piper CLI 兜底 → mock（audio=None，前端 speechSynthesis）。piper 路径保留拉丁字母→中文读音字转写；云端收原文。无提示音、无前导静音。
 - **speak.py**：话术渲染（`config/utterances.zh-CN.json`，52 键，缺失占位符原样保留）+ 播报目标路由（wake→vehicle；query→speak.query；cabin/ptt→对应配置）。
-- **实现状态**：已完成；提示音样本级拼接断言；真机听感待验（R-08）。
+- **实现状态**：云端增强已落地；音色/音量真机听感待验（R-08）。
 
 ### 3.10 任务 Schema 与参数对话（`app/tasks/schemas.py`、`dialogue.py`）
 
@@ -184,7 +184,7 @@ forkAI 部署在叉车车载工控机，外部实体：
   → executor.handle（现场锁/武装/任务流互斥检查 → ParamDialogue 追问/确认）
   → JarvisClient POST /api/control/{action} 或 scheduler 内联 route
   →（drive 类）MotionWatchdog 启动 2s 倒计时
-  → speak 渲染话术 → piper 合成（+beep 前缀 + 前导静音）
+  → speak 渲染话术 → TTS（缓存 / 云端 CosyVoice2 / piper）
   → /ws/events 广播 intent + tts → 前端 AudioContext 播放
 ```
 
@@ -320,7 +320,8 @@ cmd 与 JMode 处理者对应（源码 AddTask 注册）：`drive/safedrive`→J
 | 故障 | 降级行为 |
 |---|---|
 | LLM 不可达 | 纯规则 NLU；复合指令只执行首个规则命中；打一次 warning 后静默 |
-| piper 不可用 | TTS 回退 `engine:"mock"` audio=None → 前端 speechSynthesis |
+| 云端 TTS 不可达 | 超时后 piper 兜底；piper 也不可用则 `engine:"mock"` audio=None → 前端 speechSynthesis |
+| piper 不可用 | 云端/缓存命中仍可播；均失败则 TTS 回退 `engine:"mock"` audio=None → 前端 speechSynthesis |
 | sherpa/ASR 模型缺失 | 告警不崩溃；文本链路仍可用 |
 | sounddevice 缺失 | cabin_listen 无法启用，PTT 链路不受影响 |
 | jarvis 不可达 | 任务流重试 3 次 + 续跑窗口 ≈5s + lost/back 广播；急停监控静默跳过 |
@@ -328,7 +329,7 @@ cmd 与 JMode 处理者对应（源码 AddTask 注册）：`drive/safedrive`→J
 
 ### 8.4 隐私与网络安全
 
-- 全离线；日志记文本不录音频，7 天删除。
+- ASR/NLU 全离线；TTS 联网增强、本地缓存与 piper 兜底；出网内容仅为模板话术文本；日志记文本不录音频，7 天删除。
 - 车端接口无鉴权；forkai-core Bearer + 配对码 + 现场锁构成全部访问控制——**部署前提是厂内受信网络**；CORS 全开同样基于此假设。
 
 ## 9. 数据与持久化
@@ -340,7 +341,7 @@ cmd 与 JMode 处理者对应（源码 AddTask 注册）：`drive/safedrive`→J
 | 话术配置 | `config/utterances.zh-CN.json`（52 键） | 启动加载 |
 | 核心配置 | `config/core.config.yaml` + env 覆盖 | 启动加载 |
 | 配对/现场锁/武装/ParamDialogue | 内存（SessionManager / ParamDialogue） | **重启即失**（R-03） |
-| 模型资产 | `models/asr`、`models/llm`、`models/tts`（piper）、`assets/beep_*.wav` | 部署时安装 |
+| 模型资产 | `models/asr`、`models/llm`、`models/piper`、`data/tts_cache/` | 部署时安装；TTS 缓存运行期生成 |
 | 日志 | 文本日志（不录音频），7 天删除 | 滚动 |
 
 ## 10. 部署架构

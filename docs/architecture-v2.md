@@ -23,7 +23,7 @@
 │  ├─ taskflow/   任务流引擎（校验/存储/执行/匹配）│
 │  ├─ safety/     点动看门狗 + 急停监视          │
 │  ├─ session/    配对/现场锁/唤醒武装           │
-│  ├─ tts/        piper 合成 + 提示音拼接        │
+│  ├─ tts/        缓存 → CosyVoice2 → piper → mock │
 │  └─ jarvis/     车端 HTTP 客户端 + route 构造  │
 └──────┬───────────────────────┬───────────────┘
        │ HTTP /api/* + WS      │ OpenAI 兼容
@@ -58,7 +58,11 @@
 | safety.alarm_monitor | app/safety/alarm_monitor.py | 急停上升沿强制退出现场锁 |
 | jarvis.client | app/jarvis/client.py | 车端 HTTP 客户端（state/map/params/control/start_route） |
 | jarvis.routes_builder | app/jarvis/routes_builder.py | 五种任务 route 节点构造，缺参抛 ValueError |
-| tts.piper | app/tts/piper.py | piper CLI 合成 + beep 前缀拼接 + mock 回退 |
+| tts.service | app/tts/service.py | 合成入口：缓存 → 云端 → piper → mock |
+| tts.cloud | app/tts/cloud.py | SiliconFlow CosyVoice2 客户端 + WAV 头修正 |
+| tts.cache | app/tts/cache.py | 按文本哈希落盘；超限按 mtime 淘汰 |
+| tts.prewarm | app/tts/prewarm.py | 启动后台预热固定话术与可枚举参数 |
+| tts.piper | app/tts/piper.py | piper CLI 合成（拉丁字母转写）+ mock 回退 |
 | session.manager | app/session/manager.py | 配对码/Token/现场锁/唤醒武装（TTL 管理） |
 | events | app/events.py | /ws/events 客户端集合 + broadcast |
 | api | app/api/*.py | REST/WS 端点（见 api-v2.md） |
@@ -71,7 +75,7 @@
 前端 → POST /api/voice/text {text,channel}
 core → auth(Bearer) → cabin 通道先匹配唤醒词（命中→arm_wake+TTS"在"+广播，纯唤醒词直接返回）
     → correct_asr 纠偏 → router.parse_intent → [意图列表]
-    → 逐个 executor.handle（锁定检查/对话/执行）→ render 话术 → piper 合成(+beep)
+    → 逐个 executor.handle（锁定检查/对话/执行）→ render 话术 → TTS（缓存/云端/piper）
     → broadcast intent + tts（每意图一轮）
     → 返回 {succeed,intent,utterance,audioBase64,target,intents[]}
 ```
@@ -120,7 +124,8 @@ TASK_* 缺 required 参数 → 挂起会话(stage=collect) → 追问第一参
 |------|------|------|----------|
 | sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23（int8） | services/core/models/asr/ | 78M | RTF≈0.06 @x86 num_threads=1（2线程非确定）；指令词热词加权；"电量"等同音词靠纠偏表 |
 | Qwen2-0.5B-Instruct Q4_K_M | services/core/models/llm/ | 380M | 格式守法；复合指令偶有漏意图/单位换算错误；靠白名单校验+规则数值覆盖+部分规则回退兜底；保留升 1.5B 选项 |
-| piper zh_CN-huayan-medium | services/core/models/piper/ | 63M | RTF≈0.1；合成有随机性（同文本时长抖动） |
+| piper zh_CN-huayan-medium | services/core/models/piper/ | 63M | RTF≈0.1；云端不可达时兜底 |
+| CosyVoice2-0.5B（SiliconFlow） | 云端 API | — | 非流式短句中位约 700ms；WAV 24kHz；本地缓存命中后零合成延迟 |
 
 llama.cpp 为 b10256 源码编译（-DGGML_NATIVE=OFF -DLLAMA_CURL=OFF，gcc 9.4），二进制在 services/llm-sidecar/bin/。
 
@@ -134,8 +139,8 @@ llama.cpp 为 b10256 源码编译（-DGGML_NATIVE=OFF -DLLAMA_CURL=OFF，gcc 9.4
 | voice-gateway src/jarvis.ts | app/jarvis/client.py |
 | voice-gateway src/executor.ts | app/executor.py |
 | voice-gateway src/intent.ts | app/nlu/rules.py |
-| voice-gateway src/speak.ts | app/speak.py（渲染/路由）+ app/tts/piper.py（合成内置） |
+| voice-gateway src/speak.ts | app/speak.py（渲染/路由）+ app/tts/service.py（合成入口） |
 | voice-gateway config/gateway.config.yaml | config/core.config.yaml |
 | voice-gateway config/utterances.zh-CN.json | config/utterances.zh-CN.json（扩充） |
-| services/speech（TTS HTTP 服务） | app/tts/piper.py（core 内直接调 piper CLI） |
+| services/speech（TTS HTTP 服务） | app/tts/service.py（云端+缓存）+ app/tts/piper.py（core 内 piper CLI 兜底） |
 | packages/shared 类型 | 继续为前端共享类型源（IntentName 同步扩充） |
