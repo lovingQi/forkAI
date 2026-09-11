@@ -75,6 +75,9 @@ nlu:
 llm:
   enabled: true
   timeout_s: 10
+  thinking_enabled: false
+  max_tokens: 512
+  thinking_max_tokens: 4096
   model: deepseek-flash
   siliconflow:
     base_url: https://api.siliconflow.cn/v1

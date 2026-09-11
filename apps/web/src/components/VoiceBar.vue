@@ -56,6 +56,14 @@
         inactive-text="全LLM"
         @change="onNluRulesChange"
       />
+      <el-switch
+        v-model="llmThinkingEnabled"
+        size="small"
+        inline-prompt
+        active-text="思考"
+        inactive-text="直出"
+        @change="onThinkingChange"
+      />
       <span class="sub">最多</span>
       <el-input-number
         v-model="nluMaxIntents"
@@ -109,6 +117,7 @@ const partialText = ref('')
 const asrModel = ref('')
 const llmModel = ref('')
 const nluRulesEnabled = ref(true)
+const llmThinkingEnabled = ref(false)
 const nluMaxIntents = ref(5)
 const asrItems = ref<VoiceProviderItem[]>([])
 const llmItems = ref<VoiceProviderItem[]>([])
@@ -205,6 +214,7 @@ async function loadProviders(probe: boolean) {
         if (data.llm.selected) llmModel.value = data.llm.selected
         if (typeof data.nluRulesEnabled === 'boolean') nluRulesEnabled.value = data.nluRulesEnabled
         if (typeof data.nluMaxIntents === 'number') nluMaxIntents.value = data.nluMaxIntents
+        if (typeof data.llmThinkingEnabled === 'boolean') llmThinkingEnabled.value = data.llmThinkingEnabled
       }
     })
   } catch (e: any) {
@@ -245,6 +255,15 @@ async function onNluRulesChange(on: boolean | string | number) {
     await setVoiceProviders({ nluRulesEnabled: Boolean(on) })
   } catch (e: any) {
     ElMessage.error(e?.message || '保存规则快路径失败')
+  }
+}
+
+async function onThinkingChange(on: boolean | string | number) {
+  if (ignoreChange) return
+  try {
+    await setVoiceProviders({ llmThinkingEnabled: Boolean(on) })
+  } catch (e: any) {
+    ElMessage.error(e?.message || '保存思考模式失败')
   }
 }
 

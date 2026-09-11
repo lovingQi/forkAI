@@ -71,6 +71,8 @@ def _merge_runtime_models(cfg: dict) -> None:
             nlu["max_intents"] = max(1, min(8, int(rt["nlu_max_intents"])))
         except (TypeError, ValueError):
             nlu["max_intents"] = 5
+    if "llm_thinking_enabled" in rt:
+        cfg.setdefault("llm", {})["thinking_enabled"] = bool(rt["llm_thinking_enabled"])
 
 
 def save_runtime_models(cfg: dict) -> None:
@@ -87,6 +89,7 @@ def save_runtime_models(cfg: dict) -> None:
         "llm_model": llm_model,
         "nlu_rules_enabled": bool(nlu.get("rules_enabled", True)),
         "nlu_max_intents": max_n,
+        "llm_thinking_enabled": bool((cfg.get("llm") or {}).get("thinking_enabled", False)),
     }
     RUNTIME_MODELS_PATH.parent.mkdir(parents=True, exist_ok=True)
     tmp = RUNTIME_MODELS_PATH.with_suffix(".yaml.tmp")

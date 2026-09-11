@@ -274,11 +274,13 @@ async def voice_providers(request: Request, client_id: str = Depends(auth)):
             for item in LLM_CATALOG
         ]
     nlu = cfg.get("nlu") or {}
+    llm_cfg = cfg.get("llm") or {}
     return {
         "asr": {"selected": asr_selected, "items": asr_items},
         "llm": {"selected": llm_selected, "items": llm_items},
         "nluRulesEnabled": bool(nlu.get("rules_enabled", True)),
         "nluMaxIntents": clamp_max_intents(nlu.get("max_intents", 5)),
+        "llmThinkingEnabled": bool(llm_cfg.get("thinking_enabled", False)),
     }
 
 
@@ -302,6 +304,10 @@ async def voice_providers_put(request: Request, client_id: str = Depends(auth)):
     nlu.setdefault("rules_enabled", True)
     nlu.setdefault("max_intents", 5)
     nlu["max_intents"] = clamp_max_intents(nlu.get("max_intents", 5))
+    llm_cfg = cfg.setdefault("llm", {})
+    if "llmThinkingEnabled" in body:
+        llm_cfg["thinking_enabled"] = bool(body["llmThinkingEnabled"])
+    llm_cfg.setdefault("thinking_enabled", False)
     save_runtime_models(cfg)
     return {
         "succeed": True,
@@ -309,6 +315,7 @@ async def voice_providers_put(request: Request, client_id: str = Depends(auth)):
         "llmModel": llm_model,
         "nluRulesEnabled": bool(nlu.get("rules_enabled", True)),
         "nluMaxIntents": clamp_max_intents(nlu.get("max_intents", 5)),
+        "llmThinkingEnabled": bool(llm_cfg.get("thinking_enabled", False)),
     }
 
 

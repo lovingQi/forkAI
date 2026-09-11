@@ -30,8 +30,8 @@
 |------|------|--------|------|
 | POST | /api/voice/text | `{"text":"前进","channel":"ptt"\|"cabin"}` | `{"succeed":true,"intent":{name,slots,rawText},"utterance":"好的，前进","audioBase64":"...","ttsEngine":"cloud-cache","target":"both","intents":[...]}`；空文本 `400 {"succeed":false,"error":"empty"}` |
 | POST | /api/voice/stop | — | 等价于以 ptt 通道执行"停止" |
-| GET | /api/voice/providers | `?probe=1` 打开下拉时测延迟 | `{"asr":{"selected","items":[{"id","name","latencyMs","error"}]},"llm":{...},"nluRulesEnabled","nluMaxIntents"}` |
-| PUT | /api/voice/providers | `{asrModel?,llmModel?,nluRulesEnabled?,nluMaxIntents?}` | 写入 `runtime_models.yaml`；`{"succeed":true,"asrModel","llmModel","nluRulesEnabled","nluMaxIntents"}`；`nluMaxIntents` 夹紧 1～8 |
+| GET | /api/voice/providers | `?probe=1` 打开下拉时测延迟 | `{"asr":{...},"llm":{...},"nluRulesEnabled","nluMaxIntents","llmThinkingEnabled"}` |
+| PUT | /api/voice/providers | `{asrModel?,llmModel?,nluRulesEnabled?,nluMaxIntents?,llmThinkingEnabled?}` | 写入 `runtime_models.yaml`；`nluMaxIntents` 夹紧 1～8 |
 
 响应说明：`errorCode`/`audioBase64` 为空时省略该键；`intents` 为完整意图数组（复合指令多元素）；追问/待确认时 `utterance` 为追问或确认话术（如 `请告诉我起点`、`确认执行任务流取货演示流程吗`）。
 

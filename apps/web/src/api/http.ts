@@ -98,7 +98,7 @@ export async function endSite(force = false) {
 }
 
 export async function voiceText(text: string, channel: 'cabin' | 'ptt') {
-  const { data } = await http.post('/voice/text', { text, channel })
+  const { data } = await http.post('/voice/text', { text, channel }, { timeout: 40000 })
   return data as {
     succeed: boolean
     utterance?: string
@@ -137,6 +137,7 @@ export async function getVoiceProviders(probe = false, signal?: AbortSignal) {
     llm: { selected: string; items: VoiceProviderItem[] }
     nluRulesEnabled: boolean
     nluMaxIntents: number
+    llmThinkingEnabled: boolean
   }
 }
 
@@ -145,6 +146,7 @@ export async function setVoiceProviders(body: {
   llmModel?: string
   nluRulesEnabled?: boolean
   nluMaxIntents?: number
+  llmThinkingEnabled?: boolean
 }) {
   const { data } = await http.put('/voice/providers', body)
   return data as {
@@ -153,5 +155,6 @@ export async function setVoiceProviders(body: {
     llmModel: string
     nluRulesEnabled: boolean
     nluMaxIntents: number
+    llmThinkingEnabled: boolean
   }
 }

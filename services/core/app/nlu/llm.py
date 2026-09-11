@@ -1,7 +1,8 @@
 """LLMClient：云端 OpenAI 兼容接口做意图抽取。
 
 规则快路径未命中或关闭时调用。按 cfg["llm"]["model"] 选择 SiliconFlow 或官方 DeepSeek。
-temperature=0、enable_thinking=false；超时/缺 key/解析失败返回 None（整句不执行）。
+思考模式可关：关则把额度留给 JSON；开则加大 max_tokens，只解析 message.content。
+超时/缺 key/解析失败返回 None（整句不执行）。
 """
 import json
 import os
@@ -82,6 +83,24 @@ class LLMClient:
             n = 5
         return max(1, min(8, n))
 
+    def _thinking_enabled(self) -> bool:
+        return bool((self._cfg.get("llm") or {}).get("thinking_enabled", False))
+
+    def _max_tokens(self, thinking: bool) -> int:
+        llm = self._cfg.get("llm") or {}
+        key = "thinking_max_tokens" if thinking else "max_tokens"
+        default = 4096 if thinking else 512
+        try:
+            n = int(llm.get(key, default))
+        except (TypeError, ValueError):
+            n = default
+        return max(64, n)
+
+    def _timeout_s(self, thinking: bool) -> float:
+        if thinking:
+            return max(self._timeout, 30.0)
+        return self._timeout
+
     async def extract(self, text: str) -> list | None:
         """返回 [{"intent": str, "slots": dict}, ...]（≤max_intents）；失败/不可用返回 None。"""
         if not self.enabled:
@@ -91,12 +110,22 @@ class LLMClient:
             return None
         return self._parse(content)
 
-    async def _chat(self, text: str, model_id: str | None = None) -> tuple[str | None, str | None]:
+    async def _chat(
+        self,
+        text: str,
+        model_id: str | None = None,
+        *,
+        thinking: bool | None = None,
+        max_tokens: int | None = None,
+        allow_length_retry: bool = True,
+    ) -> tuple[str | None, str | None]:
         ep = resolve_llm(self._cfg, model_id)
         if ep is None:
             self._warn_once("[forkai-core] llm 未配置 key，整句不执行")
             return None, "未配置key"
         base_url, api_key, model = ep
+        use_thinking = self._thinking_enabled() if thinking is None else thinking
+        tokens = max_tokens if max_tokens is not None else self._max_tokens(use_thinking)
         body: dict = {
             "model": model,
             "messages": [
@@ -104,17 +133,20 @@ class LLMClient:
                 {"role": "user", "content": text},
             ],
             "temperature": 0,
-            "max_tokens": 512,
+            "max_tokens": tokens,
         }
         item = catalog_item(model_id or current_llm_model(self._cfg))
-        if item and item["provider"] == "siliconflow":
-            body["enable_thinking"] = False
+        provider = item["provider"] if item else "deepseek"
+        if provider == "siliconflow":
+            body["enable_thinking"] = use_thinking
+        else:
+            body["thinking"] = {"type": "enabled" if use_thinking else "disabled"}
         try:
             res = await self._client.post(
                 f"{base_url}/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}"},
                 json=body,
-                timeout=self._timeout,
+                timeout=self._timeout_s(use_thinking),
             )
         except httpx.TimeoutException:
             self._warn_once("[forkai-core] llm 超时，整句不执行")
@@ -129,20 +161,45 @@ class LLMClient:
             self._warn_once(f"[forkai-core] llm HTTP {res.status_code}")
             return None, f"HTTP{res.status_code}"
         try:
-            content = res.json()["choices"][0]["message"]["content"]
+            payload = res.json()
+            choice = payload["choices"][0]
+            msg = choice.get("message") or {}
+            content = msg.get("content")
+            if content is None:
+                content = ""
+            reasoning = msg.get("reasoning_content") or msg.get("reasoning") or ""
+            finish = str(choice.get("finish_reason") or "")
         except (KeyError, IndexError, TypeError, ValueError) as e:
             self._warn_once(f"[forkai-core] llm 输出无法解析: {e}")
             return None, "失败"
+        print(
+            f"[forkai-core] llm thinking={'on' if use_thinking else 'off'} "
+            f"finish={finish or '?'} content_len={len(content)} "
+            f"reasoning_len={len(reasoning)} max_tokens={tokens}",
+            flush=True,
+        )
+        if use_thinking and not str(content).strip() and finish == "length" and allow_length_retry:
+            bigger = min(max(tokens * 2, tokens + 1024), 8192)
+            if bigger > tokens:
+                print(
+                    f"[forkai-core] llm 思考占满额度，重试 max_tokens={bigger}",
+                    flush=True,
+                )
+                return await self._chat(
+                    text,
+                    model_id,
+                    thinking=use_thinking,
+                    max_tokens=bigger,
+                    allow_length_retry=False,
+                )
+        if not str(content).strip():
+            return None, "空content"
         return content, None
-
-    async def raw_content(self, text: str, model_id: str | None = None) -> str | None:
-        content, _err = await self._chat(text, model_id)
-        return content
 
     async def probe_model(self, model_id: str) -> dict:
         item = catalog_item(model_id) or {"id": model_id, "name": model_id}
         t0 = time.perf_counter()
-        content, err = await self._chat("前进", model_id)
+        content, err = await self._chat("前进", model_id, thinking=False)
         if content is None:
             return {
                 "id": model_id,
@@ -152,6 +209,10 @@ class LLMClient:
             }
         ms = int((time.perf_counter() - t0) * 1000)
         return {"id": model_id, "name": item["name"], "latencyMs": ms, "error": None}
+
+    async def raw_content(self, text: str, model_id: str | None = None) -> str | None:
+        content, _err = await self._chat(text, model_id)
+        return content
 
     def _warn_once(self, msg: str) -> None:
         if not self._warned_unreachable:
