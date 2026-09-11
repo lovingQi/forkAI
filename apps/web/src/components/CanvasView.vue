@@ -248,6 +248,54 @@ function poseYawToRad(th: number): number {
   return Math.abs(th) > Math.PI * 2 ? (th * Math.PI) / 180 : th
 }
 
+function vehicleToScreen(lx: number, ly: number, ox: number, oy: number, th: number): Point {
+  return worldToScreen({
+    x: ox + lx * Math.cos(th) - ly * Math.sin(th),
+    y: oy + lx * Math.sin(th) + ly * Math.cos(th)
+  })
+}
+
+function pathLocal(pts: [number, number][], ox: number, oy: number, th: number): Point[] {
+  return pts.map(([lx, ly]) => vehicleToScreen(lx, ly, ox, oy, th))
+}
+
+function fillStroke(pts: Point[], fill: string, stroke: string, lineWidth: number) {
+  if (!ctx || pts.length < 2) return
+  ctx.lineJoin = 'round'
+  ctx.lineCap = 'round'
+  ctx.lineWidth = lineWidth
+  ctx.beginPath()
+  pts.forEach((p, i) => (i === 0 ? ctx!.moveTo(p.x, p.y) : ctx!.lineTo(p.x, p.y)))
+  ctx.closePath()
+  ctx.fillStyle = fill
+  ctx.fill()
+  ctx.strokeStyle = stroke
+  ctx.stroke()
+}
+
+function fillCircleLocal(
+  lx: number,
+  ly: number,
+  rMm: number,
+  ox: number,
+  oy: number,
+  th: number,
+  fill: string,
+  stroke: string,
+  lineWidth: number
+) {
+  if (!ctx) return
+  const c = vehicleToScreen(lx, ly, ox, oy, th)
+  const r = Math.max(2, rMm * scale.value)
+  ctx.beginPath()
+  ctx.arc(c.x, c.y, r, 0, Math.PI * 2)
+  ctx.fillStyle = fill
+  ctx.fill()
+  ctx.lineWidth = lineWidth
+  ctx.strokeStyle = stroke
+  ctx.stroke()
+}
+
 // 以机器人当前位置为中心(跟随)，缩放保持不变 —— 用户主动「回中」
 function recenter() {
   userInteracted = true
@@ -638,41 +686,75 @@ function drawRobot() {
   const front = size.length_front || size.length / 2 || 400
   const rear = size.length_rear || size.length / 2 || 400
   const halfW = (size.width || 600) / 2
+  const lw = Math.max(1.4, scale.value * 40)
+  const total = front + rear
 
-  const corners: Point[] = [
-    { x: front, y: halfW },
-    { x: front, y: -halfW },
-    { x: -rear, y: -halfW },
-    { x: -rear, y: halfW }
+  // 实物是无驾驶舱堆高 AGV：货叉朝工作端伸出，门架在中前，设备舱/雷达在车尾。
+  // pose +x = 车尾配重侧；货叉在 -x。
+  const forkLen = Math.min(Math.max(total * 0.42, 800), rear + front * 0.28)
+  const tipX = -rear
+  const mastX = tipX + forkLen
+  const tailX = front
+  const tineW = Math.min(Math.max(halfW * 0.12, 40), 90)
+  const tineY = halfW * 0.42
+  const mastT = Math.min(140, halfW * 0.38)
+
+  // 底盘（门架到车尾，略宽）
+  const chassis: [number, number][] = [
+    [mastX - 30, halfW * 0.98],
+    [tailX, halfW * 0.92],
+    [tailX, -halfW * 0.92],
+    [mastX - 30, -halfW * 0.98]
   ]
-  const screenPts = corners.map((c) => {
-    const wx = x + c.x * Math.cos(th) - c.y * Math.sin(th)
-    const wy = y + c.x * Math.sin(th) + c.y * Math.cos(th)
-    return worldToScreen({ x: wx, y: wy })
-  })
+  fillStroke(pathLocal(chassis, x, y, th), 'rgba(30,41,59,0.72)', '#4ade80', lw)
 
-  ctx.strokeStyle = '#22c55e'
-  ctx.lineWidth = 2
-  ctx.beginPath()
-  screenPts.forEach((p, i) => {
-    if (i === 0) ctx!.moveTo(p.x, p.y)
-    else ctx!.lineTo(p.x, p.y)
-  })
-  ctx.closePath()
-  ctx.stroke()
+  // 设备舱（雷达/电柜，车尾）
+  const stackX0 = mastX + mastT + 40
+  const stack: [number, number][] = [
+    [stackX0, halfW * 0.7],
+    [tailX - 40, halfW * 0.62],
+    [tailX - 40, -halfW * 0.62],
+    [stackX0, -halfW * 0.7]
+  ]
+  fillStroke(pathLocal(stack, x, y, th), 'rgba(51,65,85,0.85)', '#86efac', lw)
 
-  // 朝向线
+  // 门架（立柱俯视成一条宽带）
+  const mastPts: [number, number][] = [
+    [mastX, halfW * 0.95],
+    [mastX + mastT, halfW * 0.88],
+    [mastX + mastT, -halfW * 0.88],
+    [mastX, -halfW * 0.95]
+  ]
+  fillStroke(pathLocal(mastPts, x, y, th), 'rgba(71,85,105,0.95)', '#a3e635', lw)
+
+  // 两根货叉，尖端朝托盘/工作端
+  for (const sign of [1, -1]) {
+    const cy = sign * tineY
+    const forkPts: [number, number][] = [
+      [mastX, cy + tineW],
+      [tipX + 50, cy + tineW * 0.7],
+      [tipX, cy],
+      [tipX + 50, cy - tineW * 0.7],
+      [mastX, cy - tineW]
+    ]
+    fillStroke(pathLocal(forkPts, x, y, th), 'rgba(226,232,240,0.92)', '#f8fafc', lw)
+  }
+
+  const wheelFill = 'rgba(15,23,42,0.9)'
+  const wheelStroke = '#94a3b8'
+  fillCircleLocal(mastX + 50, halfW * 0.78, 90, x, y, th, wheelFill, wheelStroke, lw)
+  fillCircleLocal(mastX + 50, -halfW * 0.78, 90, x, y, th, wheelFill, wheelStroke, lw)
+  fillCircleLocal(tailX - 120, halfW * 0.55, 70, x, y, th, wheelFill, wheelStroke, lw)
+  fillCircleLocal(tailX - 120, -halfW * 0.55, 70, x, y, th, wheelFill, wheelStroke, lw)
+
+  // 顶部激光雷达（实物图车尾两侧）
+  fillCircleLocal(tailX - 90, halfW * 0.28, 55, x, y, th, 'rgba(56,189,248,0.7)', '#7dd3fc', lw)
+  fillCircleLocal(tailX - 90, -halfW * 0.28, 55, x, y, th, 'rgba(56,189,248,0.7)', '#7dd3fc', lw)
+
   const center = worldToScreen({ x, y })
-  const head = worldToScreen({ x: x + front * Math.cos(th), y: y + front * Math.sin(th) })
-  ctx.strokeStyle = '#86efac'
+  ctx.fillStyle = '#bbf7d0'
   ctx.beginPath()
-  ctx.moveTo(center.x, center.y)
-  ctx.lineTo(head.x, head.y)
-  ctx.stroke()
-
-  ctx.fillStyle = '#22c55e'
-  ctx.beginPath()
-  ctx.arc(center.x, center.y, 3, 0, Math.PI * 2)
+  ctx.arc(center.x, center.y, Math.max(2.2, scale.value * 60), 0, Math.PI * 2)
   ctx.fill()
 }
 
