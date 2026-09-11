@@ -33,12 +33,13 @@ def _extract_value(spec: dict, text: str):
             return False, None
         v = float(m.group(0))
         return True, int(v) if v == int(v) else v
-    # name：取原文过 norm（去标点空格，保留大小写）；
-    # 先剥引导介词（允许重复，"从a点"/"到b点"/"从从a点"都是自然的回答方式），
-    # 再剥尾部"站点/语气词"；但保留 点/区（与 rules._slot_follow_back 的保真策略一致）
+    # name：取原文过 norm；剥引导介词与尾部「站点/点/语气词」，保留「区」。
+    # 大小写下发前按地图 PathPoint 匹配。
     v = norm(text)
     v = re.sub(r"^(从|自|到|去|往)+", "", v)
     v = re.sub(r"(站点|吧|啊|呀|呢)$", "", v)
+    if v.endswith("点") and len(v) > 1:
+        v = v[:-1]
     return (bool(v), v or None)
 
 

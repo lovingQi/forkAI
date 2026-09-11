@@ -15,8 +15,9 @@ from pathlib import Path
 CORE_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(CORE_ROOT))
 
+from app.jarvis.station_names import extract_path_point_names, resolve_station_name  # noqa: E402
+from app.nlu.router import is_immediate_stop, rule_route, sanitize_slots  # noqa: E402
 from app.nlu.rules import correct_asr, parse_intent_rule  # noqa: E402
-from app.nlu.router import is_immediate_stop, rule_route  # noqa: E402
 
 # (输入, 期望意图, {slot: 期望值} 或 None)
 CORPUS: list[tuple[str, str, dict | None]] = [
@@ -54,9 +55,12 @@ CORPUS: list[tuple[str, str, dict | None]] = [
     ("向右转90度", "TASK_HEAD", {"angle": -90}),
     ("掉头", "TASK_HEAD", {"angle": 180}),
     # ---- 任务 ----
-    ("从A点到B点", "TASK_FOLLOW_BACK", {"start_name": "A点", "target_name": "B点"}),
-    ("从从A点到B点", "TASK_FOLLOW_BACK", {"start_name": "A点", "target_name": "B点"}),
+    ("从A点到B点", "TASK_FOLLOW_BACK", {"start_name": "A", "target_name": "B"}),
+    ("从从A点到B点", "TASK_FOLLOW_BACK", {"start_name": "A", "target_name": "B"}),
+    ("从P1点去P4点", "TASK_FOLLOW_BACK", {"start_name": "P1", "target_name": "P4"}),
+    ("从p1到p4", "TASK_FOLLOW_BACK", {"start_name": "p1", "target_name": "p4"}),
     ("从1号区去2号区", "TASK_FOLLOW_BACK", {"start_name": "1号区", "target_name": "2号区"}),
+    ("去P4点", "GOTO_GOAL", {"goal": "P4"}),
     ("盲叉取货", "TASK_FOLLOW_BACK", {"get_pallet": True}),
     ("识别栈板", "TASK_GET_PALLET", None),
     ("自动取货", "TASK_GET_PALLET", None),
@@ -140,10 +144,12 @@ def run() -> int:
         ("停止", "rule", True),
         ("急停", "rule", True),
         ("升到150毫米", "rule", False),
+        ("盲叉取货", "rule", False),
         ("后退不要前进", "need_llm", False),
         ("不要前进", "need_llm", False),
         ("不要停", "need_llm", False),
         ("升到2米然后去A区", "need_llm", False),
+        ("原地旋转90度再从P1点去P4点", "need_llm", False),
     ]
     for text, want_via, want_stop in gate:
         via, _ = rule_route(text)
@@ -161,6 +167,54 @@ def run() -> int:
             )
             failures.append(msg)
             print(msg)
+
+    # 站点名归一：剥「点」+ 按地图大小写匹配
+    station_cases = [
+        ("P1点", ["p1", "p4"], "p1"),
+        ("P4点", ["p1", "p4"], "p4"),
+        ("p1", ["p1", "p4"], "p1"),
+        ("P1点", None, "p1"),
+        ("1号区", None, "1号区"),
+        ("A区", ["p1", "A区"], "A区"),
+        ("A点", None, "a"),
+    ]
+    for spoken, names, want in station_cases:
+        got = resolve_station_name(spoken, names)
+        ok = got == want
+        if ok:
+            passed += 1
+            if verbose:
+                print(f"  ✓ station {spoken!r:8} → {got}")
+        else:
+            failed += 1
+            msg = f"  ✗ station {spoken!r} 期望 {want!r} 实际 {got!r}"
+            failures.append(msg)
+            print(msg)
+
+    payload = {"data": {"Objs": {"PathPoint": [{"name": "p1"}, {"name": "p4"}]}}}
+    extracted = extract_path_point_names(payload)
+    ok = extracted == ["p1", "p4"]
+    if ok:
+        passed += 1
+    else:
+        failed += 1
+        msg = f"  ✗ extract_path_point_names 期望 ['p1','p4'] 实际 {extracted!r}"
+        failures.append(msg)
+        print(msg)
+
+    san = sanitize_slots(
+        "TASK_FOLLOW_BACK",
+        {"start_name": "P1点", "target_name": "P4点"},
+        {},
+    )
+    ok = san.get("start_name") == "p1" and san.get("target_name") == "p4"
+    if ok:
+        passed += 1
+    else:
+        failed += 1
+        msg = f"  ✗ sanitize follow_back 期望 p1/p4 实际 {san}"
+        failures.append(msg)
+        print(msg)
 
     total = passed + failed
     print(f"\n[nlu_corpus] 通过 {passed}/{total}（{passed / total * 100:.1f}%）")

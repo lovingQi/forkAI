@@ -1,5 +1,5 @@
 jarvis:
-  baseUrl: http://127.0.0.1:8080
+  baseUrl: http://172.10.25.151:8080
 server:
   host: 0.0.0.0
   port: 19000

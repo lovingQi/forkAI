@@ -34,7 +34,7 @@ def system_prompt(max_intents: int) -> str:
 - MOVE_FWD 前进 / MOVE_BACK 后退 / TURN_LEFT 左转 / TURN_RIGHT 右转
 - SPEED_UP 加速 / SPEED_DOWN 减速 / SPEED_SET 设置速度，slots: {{"n": 百分比数字}}
 - STOP 停止 / IDLE 空闲待机 / DOCK 回充充电
-- GOTO_GOAL 前往指定站点，slots: {{"goal": "站点名"}}
+- GOTO_GOAL 仅「去某地/前往某地」且没有起点时使用，slots: {{"goal": "站点名"}}
 - FORK_LIFT_UP 升起货叉 / FORK_LIFT_DOWN 放下货叉
 - FORK_LIFT_TO 货叉调到指定高度，slots: {{"n": 毫米}}（米×1000，厘米×10，默认毫米；2米=2000）
 - QUERY_BATTERY 查电量 / QUERY_MODE 查模式 / QUERY_POSE 查位置
@@ -43,8 +43,8 @@ def system_prompt(max_intents: int) -> str:
 - QUERY_ALARM_EXPLAIN 解释当前告警该怎么处理
 - QUERY_STATUS 查车况（电量/模式/当前任务/告警的综合状态）
 - TASK_HEAD 调头，slots: {{"angle": 角度数字}}
-- TASK_FOLLOW_BACK 跟车返回，slots: {{"start_name": "起点", "target_name": "终点", "get_pallet": true或false}}
-- TASK_GET_PALLET 取货 / TASK_CHARGE 去充电桩充电，slots: {{"goal": "充电桩名,可省略"}}
+- TASK_FOLLOW_BACK 点到点跟车（从A到B / 从A去B / 盲叉取货），slots: {{"start_name": "起点", "target_name": "终点", "get_pallet": true或false}}
+- TASK_GET_PALLET 相机识别栈板取货 / TASK_CHARGE 去充电桩充电，slots: {{"goal": "充电桩名,可省略"}}
 - CONFIRM 确认 / CANCEL 取消
 - FLOW_START 执行任务流，slots: {{"name": "流程名"}}
 - FLOW_PAUSE 暂停任务流 / FLOW_RESUME 继续任务流 / FLOW_CANCEL 取消任务流
@@ -55,6 +55,9 @@ def system_prompt(max_intents: int) -> str:
 - 无法识别、与叉车无关、或整句被否定掉（如「不要前进」）时输出 {{"intents": []}}
 - 数字单位：高度一律毫米，速度一律百分比
 - 复合指令按最终要执行的顺序输出，最多 {n} 条；被「不/别/不要/不是/改成/还是」否定或纠正的动作不要出现
+- 同时出现起点和终点（从A到B、从A去B、从P1点去P4点）必须用 TASK_FOLLOW_BACK，不要拆成 GOTO_GOAL
+- 盲叉、盲叉取货 = TASK_FOLLOW_BACK 且 get_pallet=true（缺起止点即可）；不要收成 TASK_GET_PALLET
+- 站点名不要带「点」字，字母数字站名用小写：P1点→p1，P4点→p4；「区」保留（A区）
 
 示例：
 输入：前进
@@ -68,6 +71,12 @@ def system_prompt(max_intents: int) -> str:
 
 输入：升到2米然后去A区
 输出：{{"intents": [{{"intent": "FORK_LIFT_TO", "slots": {{"n": 2000}}}}, {{"intent": "GOTO_GOAL", "slots": {{"goal": "A区"}}}}]}}
+
+输入：原地旋转90度，再从P1点去P4点
+输出：{{"intents": [{{"intent": "TASK_HEAD", "slots": {{"angle": 90}}}}, {{"intent": "TASK_FOLLOW_BACK", "slots": {{"start_name": "p1", "target_name": "p4"}}}}]}}
+
+输入：从P1点到P4点
+输出：{{"intents": [{{"intent": "TASK_FOLLOW_BACK", "slots": {{"start_name": "p1", "target_name": "p4"}}}}]}}
 
 输入：先回充再空闲
 输出：{{"intents": [{{"intent": "DOCK", "slots": {{}}}}, {{"intent": "IDLE", "slots": {{}}}}]}}

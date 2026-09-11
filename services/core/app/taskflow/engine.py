@@ -16,6 +16,7 @@ import asyncio
 import math
 
 from ..jarvis.routes_builder import build_route
+from ..jarvis.station_names import resolve_station_fields
 from ..speak import render
 from ..tts.service import synthesize
 from .schema import build_units, _group_map
@@ -342,9 +343,11 @@ class FlowEngine:
                 break
 
     async def _execute_node_once(self, node: dict) -> bool:
-        ntype, params = node["type"], node.get("params") or {}
+        ntype, params = node["type"], dict(node.get("params") or {})
         if ntype == "drive":
             return await self._exec_drive(params)
+        if ntype == "follow_back":
+            params = resolve_station_fields(params, await self._jarvis.path_point_names())
         route = build_route(ntype, params)
         route_name = route["name"]
         # 节点下发重试 3 次（间隔 1s）仍失败才判 failed（步骤49 断网续跑）

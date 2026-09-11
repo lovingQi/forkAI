@@ -230,10 +230,16 @@ function normalizeMapNodeName(name, pts) {
   if (name == null) return null
   const s = String(name).trim()
   if (!s) return null
-  if (pts[s]) return s
-  if (s.endsWith('点')) {
-    const bare = s.slice(0, -1)
-    if (pts[bare]) return bare
+  const keys = Object.keys(pts)
+  const lower = {}
+  for (const k of keys) lower[k.toLowerCase()] = k
+  const candidates = [s]
+  if (s.endsWith('站点') && s.length > 2) candidates.push(s.slice(0, -2))
+  else if (s.endsWith('点')) candidates.push(s.slice(0, -1))
+  for (const c of candidates) {
+    if (pts[c]) return c
+    const hit = lower[c.toLowerCase()]
+    if (hit) return hit
   }
   return null
 }

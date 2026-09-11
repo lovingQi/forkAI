@@ -62,8 +62,16 @@ def _slot_speed_set(m: re.Match) -> dict:
     return {"n": min(100, int(m.group(1) or m.group(0)))}
 
 
+def _bare_station(name: str) -> str:
+    """剥尾部「站点/点」，保留「区」。大小写留给下发前按地图匹配。"""
+    s = (name or "").strip()
+    s = re.sub(r"站点$", "", s)
+    s = re.sub(r"点$", "", s)
+    return s
+
+
 def _slot_goto(m: re.Match) -> dict:
-    return {"goal": re.sub(r"(站点|点)$", "", m.group(1) or "")}
+    return {"goal": _bare_station(m.group(1) or "")}
 
 
 # 长度单位 → mm 换算（FORK_LIFT_TO slot 统一成毫米）
@@ -95,8 +103,8 @@ def _slot_head(m: re.Match) -> dict:
 
 
 def _slot_follow_back(m: re.Match) -> dict:
-    """TASK_FOLLOW_BACK：start_name/target_name 保留地图点原名（点/区不剥，
-    仅去尾部"站点"语气词——与 GOTO 剥"站点|点"不同，这里保真优先，注释见计划步骤28）；
+    """TASK_FOLLOW_BACK：起止点剥尾部「站点/点」（与 GOTO 一致，对齐地图 PathPoint）；
+    「区」保留；大小写下发前再按地图匹配。
     起点/终点组先剥重复引导介词（"从从A点到到B点"容错）；
     带 盲叉|叉取|取货 时 get_pallet=true。"""
     slots = {}
@@ -104,8 +112,8 @@ def _slot_follow_back(m: re.Match) -> dict:
     if len(groups) >= 2:
         start = re.sub(r"^(从|自)+", "", groups[0])
         target = re.sub(r"^(到|去|往)+", "", groups[1])
-        slots["start_name"] = re.sub(r"站点$", "", start)
-        slots["target_name"] = re.sub(r"站点$", "", target)
+        slots["start_name"] = _bare_station(start)
+        slots["target_name"] = _bare_station(target)
     if re.search(r"盲叉|叉取|取货", m.string):
         slots["get_pallet"] = True
     return slots
@@ -186,7 +194,7 @@ RULES = [
         "patterns": [
             r"从(.+?)到(.+)$",
             r"从(.+?)去(.+)$",
-            r"盲叉",  # 裸"盲叉取货"：get_pallet=true，起止点缺失 → ParamDialogue 追问
+            r"盲叉(?:取货)?",  # 含「取货」以免残余实词被送去 LLM 收成 TASK_GET_PALLET
         ],
         "slot": _slot_follow_back,
     },

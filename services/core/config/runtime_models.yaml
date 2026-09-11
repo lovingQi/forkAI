@@ -2,4 +2,4 @@ asr_model: XingChenAGI/XingChenASR-V3.2-Ultra
 llm_model: deepseek-flash
 nlu_rules_enabled: true
 nlu_max_intents: 5
-llm_thinking_enabled: true
+llm_thinking_enabled: false

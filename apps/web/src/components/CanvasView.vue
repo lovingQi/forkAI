@@ -242,6 +242,12 @@ function worldToScreen(p: Point): Point {
   }
 }
 
+/** 航向转弧度。真车 Jarvis 为度（如 -86.58）；mock 为弧度（如 1.57）。 */
+function poseYawToRad(th: number): number {
+  if (!Number.isFinite(th)) return 0
+  return Math.abs(th) > Math.PI * 2 ? (th * Math.PI) / 180 : th
+}
+
 // 以机器人当前位置为中心(跟随)，缩放保持不变 —— 用户主动「回中」
 function recenter() {
   userInteracted = true
@@ -581,9 +587,8 @@ function drawAvoidBox() {
   const smin = Number(av.clearance_side_min?.default)
   if (!isFinite(fmin) || !isFinite(bmin) || !isFinite(smin)) return
 
-  const [x, y, thRad] = store.pose
-  // 协议 pose[2] 为弧度（docs/tdd.md）；勿再按角度换算
-  const th = thRad
+  const [x, y, yaw] = store.pose
+  const th = poseYawToRad(yaw)
   const size = store.robotSize
   const front = (size.length_front || size.length / 2 || 400) + fmin
   const rear = (size.length_rear || size.length / 2 || 400) + bmin
@@ -627,9 +632,8 @@ function drawLaser() {
 
 function drawRobot() {
   if (!ctx) return
-  const [x, y, thRad] = store.pose
-  // 协议 pose[2] 为弧度（docs/tdd.md）；勿再按角度换算
-  const th = thRad
+  const [x, y, yaw] = store.pose
+  const th = poseYawToRad(yaw)
   const size = store.robotSize
   const front = size.length_front || size.length / 2 || 400
   const rear = size.length_rear || size.length / 2 || 400

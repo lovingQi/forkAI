@@ -12,6 +12,7 @@ parse_intent(text, llm, cfg) -> list[dict]：
 """
 import re
 
+from ..jarvis.station_names import resolve_station_name
 from .llm import LLMClient
 from .prompts import INTENT_NAMES
 from .rules import norm, parse_intent_rule
@@ -104,7 +105,7 @@ def rule_route(text: str, cfg: dict | None = None) -> tuple[str, list]:
 
 
 def sanitize_slots(name: str, slots: dict, cfg: dict | None) -> dict:
-    """LLM 数值事后校正：高度毫米（n≤10 视为米）、叉高/速度夹紧。不改入参。"""
+    """LLM 事后校正：高度/速度夹紧；站点名剥「点」并 ASCII 小写。不改入参。"""
     out = dict(slots or {})
     cfg = cfg or {}
     if name == "FORK_LIFT_TO":
@@ -125,6 +126,10 @@ def sanitize_slots(name: str, slots: dict, cfg: dict | None) -> dict:
         n = int(round(n))
         hi = int((cfg.get("speed") or {}).get("max", 40))
         out["n"] = max(5, min(hi, n))
+    for key in ("start_name", "target_name", "goal"):
+        v = out.get(key)
+        if isinstance(v, str) and v.strip() and v != "auto":
+            out[key] = resolve_station_name(v)
     return out
 
 

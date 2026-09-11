@@ -12,6 +12,7 @@ run_utterance 遇到应中断复合指令链）。
 import math
 
 from .jarvis.routes_builder import build_fork_route, build_route
+from .jarvis.station_names import resolve_station_fields, resolve_station_name
 from .nlu.rules import FORK_INTENTS, MOTION_INTENTS, TASK_INTENTS
 from .taskflow.engine import FlowBusyError
 from .taskflow.matcher import match_flow_name
@@ -228,6 +229,7 @@ class IntentExecutor:
             goal = str(intent["slots"].get("goal") or "").strip()
             if not goal:
                 return _fail("goto", "fail_goto")
+            goal = resolve_station_name(goal, await self._jarvis.path_point_names())
             res = await self._jarvis.control("goto", {"target": "goal", "goal": goal})
             if res and res.get("succeed") is False:
                 return _fail("goto", "fail_goto")
@@ -316,6 +318,8 @@ class IntentExecutor:
         name = intent["name"]
         schema = TASK_SCHEMAS[name]
         slots = intent.get("slots") or {}
+        if name == "TASK_FOLLOW_BACK":
+            slots = resolve_station_fields(slots, await self._jarvis.path_point_names())
         # 参数装配：用户槽位优先，缺省用 schema 默认
         params = {}
         for pname, spec in schema["params"].items():
@@ -349,6 +353,8 @@ class IntentExecutor:
 
     async def _exec_task(self, intent_name: str, params: dict) -> dict:
         schema = TASK_SCHEMAS[intent_name]
+        if schema.get("route_cmd") == "follow_back":
+            params = resolve_station_fields(params, await self._jarvis.path_point_names())
         try:
             route = build_route(schema["route_cmd"], params)
         except ValueError as e:
