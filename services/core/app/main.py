@@ -10,7 +10,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .api import routes_flows, routes_pair, routes_robot, routes_site, routes_voice, ws_proxy
@@ -26,6 +26,7 @@ from .session.manager import SessionManager
 from .taskflow.engine import FlowEngine
 from .taskflow.store import FlowStore
 from .asr.cloud import close_asr_client
+from .g2a import close_g2a_client
 from .tts.cloud import close_client as close_tts_cloud
 from .tts.prewarm import prewarm
 
@@ -90,6 +91,12 @@ app.include_router(ws_proxy.router)
 # 静态托管前端构建产物（对齐 index.ts express.static）
 _web_dist = (Path(__file__).resolve().parent.parent.parent.parent / "apps" / "web" / "dist")
 if _web_dist.is_dir():
+    _index_html = _web_dist / "index.html"
+
+    @app.get("/")
+    async def _web_index():
+        return FileResponse(_index_html, headers={"Cache-Control": "no-store, max-age=0"})
+
     app.mount("/", StaticFiles(directory=str(_web_dist), html=True), name="web")
 
 
@@ -121,3 +128,4 @@ async def _shutdown():
     await jarvis.close()
     await close_tts_cloud()
     await close_asr_client()
+    await close_g2a_client()

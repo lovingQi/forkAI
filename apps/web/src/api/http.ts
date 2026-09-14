@@ -36,6 +36,19 @@ http.interceptors.request.use((cfg) => {
   return cfg
 })
 
+http.interceptors.response.use(
+  (res) => res,
+  (err) => {
+    const status = err?.response?.status
+    const code = err?.response?.data?.error
+    if (status === 401 && code === 'unpaired') {
+      clearPairSession()
+      window.dispatchEvent(new Event('forkai-unpaired'))
+    }
+    return Promise.reject(err)
+  }
+)
+
 export async function getState(): Promise<any> {
   const { data } = await http.get('/state')
   return data
@@ -129,11 +142,13 @@ export type VoiceProviderItem = {
 export async function getVoiceProviders(probe = false, signal?: AbortSignal) {
   const { data } = await http.get('/voice/providers', {
     params: probe ? { probe: 1 } : {},
-    timeout: probe ? 20000 : 10000,
+    timeout: probe ? 30000 : 15000,
     signal
   })
   return data as {
     asr: { selected: string; items: VoiceProviderItem[] }
+    tts: { selected: string; items: VoiceProviderItem[] }
+    ttsVoice: { selected: string; items: VoiceProviderItem[] }
     llm: { selected: string; items: VoiceProviderItem[] }
     nluRulesEnabled: boolean
     nluMaxIntents: number
@@ -143,6 +158,8 @@ export async function getVoiceProviders(probe = false, signal?: AbortSignal) {
 
 export async function setVoiceProviders(body: {
   asrModel?: string
+  ttsModel?: string
+  ttsVoice?: string
   llmModel?: string
   nluRulesEnabled?: boolean
   nluMaxIntents?: number
@@ -152,6 +169,8 @@ export async function setVoiceProviders(body: {
   return data as {
     succeed: boolean
     asrModel: string
+    ttsModel: string
+    ttsVoice: string
     llmModel: string
     nluRulesEnabled: boolean
     nluMaxIntents: number

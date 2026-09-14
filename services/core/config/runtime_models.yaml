@@ -1,4 +1,5 @@
 asr_model: XingChenAGI/XingChenASR-V3.2-Ultra
+tts_model: grok-voice-latest
 llm_model: deepseek-flash
 nlu_rules_enabled: true
 nlu_max_intents: 5

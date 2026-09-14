@@ -138,10 +138,16 @@ async function onStop() {
   }
 }
 
+function onUnpaired() {
+  session.logout()
+  robot.disconnectWs()
+}
+
 onMounted(async () => {
   tick = window.setInterval(() => {
     now.value = Date.now()
   }, 10000)
+  window.addEventListener('forkai-unpaired', onUnpaired)
   session.applyQueryParams()
   if (session.paired) {
     session.connectEvents()
@@ -158,6 +164,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('forkai-unpaired', onUnpaired)
   if (tick) clearInterval(tick)
   robot.disconnectWs()
 })

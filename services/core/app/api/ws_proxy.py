@@ -22,6 +22,11 @@ def _jarvis_ws_url(cfg: dict, kind: str) -> str:
     return f"{base.rstrip('/')}/ws/{kind}"
 
 
+def _loopback(url: str) -> bool:
+    u = (url or "").lower()
+    return "127.0.0.1" in u or "localhost" in u or "[::1]" in u
+
+
 @router.websocket("/ws/events")
 async def ws_events(ws: WebSocket):
     await ws.accept()
@@ -62,7 +67,13 @@ async def _pipe_jarvis(client: WebSocket, kind: str) -> None:
     await client.accept()
     url = _jarvis_ws_url(client.app.state.cfg, kind)
     try:
-        upstream = await websockets.connect(url)
+        kwargs = {}
+        if _loopback(url):
+            kwargs["proxy"] = None
+        try:
+            upstream = await websockets.connect(url, **kwargs)
+        except TypeError:
+            upstream = await websockets.connect(url)
     except Exception:
         await client.close()
         return

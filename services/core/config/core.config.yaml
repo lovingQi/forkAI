@@ -1,5 +1,5 @@
 jarvis:
-  baseUrl: http://172.10.25.151:8080
+  baseUrl: http://127.0.0.1:8080
 server:
   host: 0.0.0.0
   port: 19000
@@ -39,6 +39,16 @@ piper:
   libDir: models/piper/piper
   model: models/piper/zh_CN-huayan-medium.onnx
   config: models/piper/zh_CN-huayan-medium.onnx.json
+# 自建 Grok2API：界面可选 grok-stt / grok-voice-latest，不替换 SiliconFlow 默认
+grok2api:
+  enabled: true
+  base_url: http://45.76.71.110:8001/v1
+  api_key_env: FORKAI_G2A_API_KEY
+  language: zh
+  timeout_s: 20
+  asr_model: grok-stt
+  tts_model: grok-voice-latest
+  tts_voice: eve
 # ASR：PTT 整句上传 SiliconFlow；所选模型以 runtime_models.yaml 为准
 asr:
   sample_rate: 16000

@@ -16,21 +16,21 @@
 ┌──────────────────────────────────────────────┐
 │  forkai-core（FastAPI，:19000）               │
 │  ├─ api/        REST + WS 路由                │
-│  ├─ asr/        云端整句识别（SiliconFlow）     │
+│  ├─ asr/        云端整句识别（SiliconFlow + 可选 Grok2API）│
 │  ├─ nlu/        规则快路径（可关）→ 云端 LLM     │
 │  ├─ executor    意图执行 + 分级锁定             │
 │  ├─ tasks/      参数schema + ParamDialogue    │
 │  ├─ taskflow/   任务流引擎（校验/存储/执行/匹配）│
 │  ├─ safety/     点动看门狗 + 急停监视          │
 │  ├─ session/    配对/现场锁/唤醒武装           │
-│  ├─ tts/        缓存 → CosyVoice2 → piper → mock │
+│  ├─ tts/        缓存 → CosyVoice2/Grok Voice → piper → mock │
 │  └─ jarvis/     车端 HTTP 客户端 + route 构造  │
 └──────┬───────────────────────┬───────────────┘
        │ HTTP /api/* + WS      │ OpenAI 兼容
        ▼                       ▼
 ┌──────────────┐      ┌─────────────────┐
 │ jarvis 车端   │      │ SiliconFlow /     │
-│ （:8080）     │      │ DeepSeek 官方     │
+│ （:8080）     │      │ DeepSeek / Grok2API│
 └──────────────┘      └─────────────────┘
 前端静态托管：core 直接挂载 apps/web/dist（存在时）。
 ```
@@ -39,7 +39,7 @@
 
 | 模块 | 文件 | 职责 |
 |------|------|------|
-| asr.cloud | app/asr/cloud.py | SiliconFlow 整句转写、模型列表、延迟探测；超时抛 ASRError |
+| asr.cloud | app/asr/cloud.py | SiliconFlow 整句转写、模型列表、延迟探测；所选 grok-stt 走自建 Grok2API；超时抛 ASRError |
 | asr.pcm_wav | app/asr/pcm_wav.py | PCM16 → WAV |
 | asr.engine | app/asr/engine.py | SherpaASR 保留未在 PTT 路径加载 |
 | asr.stream | app/asr/stream.py | 本地流式封装（PTT 不再使用） |
@@ -61,7 +61,7 @@
 | jarvis.client | app/jarvis/client.py | 车端 HTTP 客户端（state/map/params/control/start_route） |
 | jarvis.routes_builder | app/jarvis/routes_builder.py | 五种任务 route 节点构造，缺参抛 ValueError |
 | tts.service | app/tts/service.py | 合成入口：缓存 → 云端 → piper → mock |
-| tts.cloud | app/tts/cloud.py | SiliconFlow CosyVoice2 客户端 + WAV 头修正 |
+| tts.cloud | app/tts/cloud.py | SiliconFlow CosyVoice2 / 自建 Grok Voice 客户端 + WAV 头修正 |
 | tts.cache | app/tts/cache.py | 按文本哈希落盘；超限按 mtime 淘汰 |
 | tts.prewarm | app/tts/prewarm.py | 启动后台预热固定话术与可枚举参数 |
 | tts.piper | app/tts/piper.py | piper CLI 合成（拉丁字母转写）+ mock 回退 |

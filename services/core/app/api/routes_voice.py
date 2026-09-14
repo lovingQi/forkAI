@@ -28,6 +28,8 @@ from ..nlu.llm import LLM_CATALOG, LLM_CATALOG_IDS, current_llm_model
 from ..nlu.router import LLM_FAIL, clamp_max_intents, parse_intent
 from ..nlu.rules import correct_asr, match_wake_word, wake_word_pattern
 from ..speak import render, resolve_target
+from ..g2a import G2A_TTS_VOICES, is_g2a_tts
+from ..tts.cloud import current_tts_model, current_tts_voice, list_tts_models, list_tts_voices, tts_display_name
 from ..tts.service import synthesize
 from .deps import auth, read_body
 
@@ -248,6 +250,8 @@ async def voice_providers(request: Request, client_id: str = Depends(auth)):
     cfg = request.app.state.cfg
     probe = str(request.query_params.get("probe") or "") in ("1", "true", "yes")
     asr_selected = current_asr_model(cfg)
+    tts_selected = current_tts_model(cfg)
+    tts_voice_selected = current_tts_voice(cfg)
     llm_selected = current_llm_model(cfg)
     asr_items: list[dict] = []
     try:
@@ -263,6 +267,14 @@ async def voice_providers(request: Request, client_id: str = Depends(auth)):
             {"id": mid, "name": asr_display_name(mid), "latencyMs": None, "error": None}
             for mid in asr_ids
         ]
+    tts_items = [
+        {"id": mid, "name": tts_display_name(mid), "latencyMs": None, "error": None}
+        for mid in list_tts_models(cfg)
+    ]
+    tts_voice_items = [
+        {"id": it["id"], "name": it["name"], "latencyMs": None, "error": None}
+        for it in list_tts_voices(cfg)
+    ]
     llm = getattr(request.app.state, "llm", None)
     if probe and llm is not None:
         llm_items = list(
@@ -277,6 +289,8 @@ async def voice_providers(request: Request, client_id: str = Depends(auth)):
     llm_cfg = cfg.get("llm") or {}
     return {
         "asr": {"selected": asr_selected, "items": asr_items},
+        "tts": {"selected": tts_selected, "items": tts_items},
+        "ttsVoice": {"selected": tts_voice_selected, "items": tts_voice_items},
         "llm": {"selected": llm_selected, "items": llm_items},
         "nluRulesEnabled": bool(nlu.get("rules_enabled", True)),
         "nluMaxIntents": clamp_max_intents(nlu.get("max_intents", 5)),
@@ -289,12 +303,24 @@ async def voice_providers_put(request: Request, client_id: str = Depends(auth)):
     body = await read_body(request)
     cfg = request.app.state.cfg
     asr_model = str(body.get("asrModel") or current_asr_model(cfg)).strip()
+    tts_model = str(body.get("ttsModel") or current_tts_model(cfg)).strip()
     llm_model = str(body.get("llmModel") or current_llm_model(cfg)).strip()
     if not asr_model:
         return JSONResponse(status_code=400, content={"succeed": False, "error": "empty_asr"})
+    allowed_tts = set(list_tts_models(cfg))
+    if tts_model not in allowed_tts:
+        return JSONResponse(status_code=400, content={"succeed": False, "error": "bad_tts"})
     if llm_model not in LLM_CATALOG_IDS:
         return JSONResponse(status_code=400, content={"succeed": False, "error": "bad_llm"})
     cfg.setdefault("asr", {}).setdefault("cloud", {})["model"] = asr_model
+    tts_cfg = cfg.setdefault("tts", {})
+    tts_cfg["model"] = tts_model
+    tts_voice = current_tts_voice(cfg)
+    if is_g2a_tts(tts_model):
+        allowed_voices = {oid for oid, _ in G2A_TTS_VOICES}
+        requested = str(body.get("ttsVoice") or tts_voice or "").strip().lower()
+        tts_voice = requested if requested in allowed_voices else "eve"
+        tts_cfg["voice"] = tts_voice
     cfg.setdefault("llm", {})["model"] = llm_model
     nlu = cfg.setdefault("nlu", {})
     if "nluRulesEnabled" in body:
@@ -312,6 +338,8 @@ async def voice_providers_put(request: Request, client_id: str = Depends(auth)):
     return {
         "succeed": True,
         "asrModel": asr_model,
+        "ttsModel": tts_model,
+        "ttsVoice": current_tts_voice(cfg),
         "llmModel": llm_model,
         "nluRulesEnabled": bool(nlu.get("rules_enabled", True)),
         "nluMaxIntents": clamp_max_intents(nlu.get("max_intents", 5)),

@@ -7,8 +7,9 @@
 - VEHICLE_ID          覆盖 vehicleId
 - FORKAI_TTS_API_KEY  云端 TTS/ASR/SiliconFlow LLM Key（不在此处覆盖 yaml）
 - FORKAI_DEEPSEEK_API_KEY  官方 DeepSeek Key（不在此处覆盖 yaml）
+- FORKAI_G2A_API_KEY  自建 Grok2API Key（不在此处覆盖 yaml）
 
-界面所选 ASR/LLM 模型与 NLU 快路径开关写在 config/runtime_models.yaml，启动时合并进 cfg。
+界面所选 ASR/TTS/LLM 模型与 NLU 快路径开关写在 config/runtime_models.yaml，启动时合并进 cfg。
 本地密钥写在 config/secrets.yaml（gitignore），仅当对应环境变量为空时注入。
 """
 import os
@@ -60,6 +61,12 @@ def _merge_runtime_models(cfg: dict) -> None:
     asr_model = rt.get("asr_model")
     if asr_model:
         cfg.setdefault("asr", {}).setdefault("cloud", {})["model"] = str(asr_model)
+    tts_model = rt.get("tts_model")
+    if tts_model:
+        cfg.setdefault("tts", {})["model"] = str(tts_model)
+    tts_voice = rt.get("tts_voice")
+    if tts_voice:
+        cfg.setdefault("tts", {})["voice"] = str(tts_voice).strip().lower()
     llm_model = rt.get("llm_model")
     if llm_model:
         cfg.setdefault("llm", {})["model"] = str(llm_model)
@@ -78,6 +85,10 @@ def _merge_runtime_models(cfg: dict) -> None:
 def save_runtime_models(cfg: dict) -> None:
     """原子写回所选模型与 NLU 快路径设置，供重启后记住。"""
     asr_model = str((cfg.get("asr") or {}).get("cloud", {}).get("model") or "")
+    tts_model = str((cfg.get("tts") or {}).get("model") or "")
+    if not tts_model:
+        tts_model = str((cfg.get("tts") or {}).get("cloud", {}).get("model") or "")
+    tts_voice = str((cfg.get("tts") or {}).get("voice") or "")
     llm_model = str((cfg.get("llm") or {}).get("model") or "")
     nlu = cfg.get("nlu") or {}
     try:
@@ -86,6 +97,8 @@ def save_runtime_models(cfg: dict) -> None:
         max_n = 5
     data = {
         "asr_model": asr_model,
+        "tts_model": tts_model,
+        "tts_voice": tts_voice,
         "llm_model": llm_model,
         "nlu_rules_enabled": bool(nlu.get("rules_enabled", True)),
         "nlu_max_intents": max_n,

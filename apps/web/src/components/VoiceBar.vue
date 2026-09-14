@@ -35,6 +35,33 @@
         />
       </el-select>
       <el-select
+        v-model="ttsModel"
+        class="model-select"
+        placeholder="TTS"
+        @change="onTtsChange"
+      >
+        <el-option
+          v-for="it in ttsItems"
+          :key="it.id"
+          :label="optionLabel(it)"
+          :value="it.id"
+        />
+      </el-select>
+      <el-select
+        v-model="ttsVoice"
+        class="voice-select"
+        placeholder="音色"
+        filterable
+        @change="onTtsVoiceChange"
+      >
+        <el-option
+          v-for="it in ttsVoiceItems"
+          :key="it.id"
+          :label="it.name"
+          :value="it.id"
+        />
+      </el-select>
+      <el-select
         v-model="llmModel"
         class="model-select"
         placeholder="LLM"
@@ -115,11 +142,15 @@ const debugText = ref('')
 const recognizing = ref(false)
 const partialText = ref('')
 const asrModel = ref('')
+const ttsModel = ref('')
+const ttsVoice = ref('')
 const llmModel = ref('')
 const nluRulesEnabled = ref(true)
 const llmThinkingEnabled = ref(false)
 const nluMaxIntents = ref(5)
 const asrItems = ref<VoiceProviderItem[]>([])
+const ttsItems = ref<VoiceProviderItem[]>([])
+const ttsVoiceItems = ref<VoiceProviderItem[]>([])
 const llmItems = ref<VoiceProviderItem[]>([])
 const textPlaceholder = computed(() => {
   if (pttDown.value) return '聆听中…'
@@ -196,6 +227,8 @@ async function withIgnoreChange(fn: () => void) {
 
 async function loadProviders(probe: boolean) {
   if (!getPairToken()) return
+  // 打开下拉时若列表还是空的，先拉清单，避免把首屏请求 abort 成 “No data”
+  if (probe && asrItems.value.length === 0) probe = false
   loadAbort?.abort()
   loadAbort = new AbortController()
   const seq = ++loadSeq
@@ -206,11 +239,17 @@ async function loadProviders(probe: boolean) {
     await withIgnoreChange(() => {
       if (probe) {
         asrItems.value = ensureSelected(mergeLatencies(asrItems.value, data.asr.items || []), asrModel.value)
+        ttsItems.value = ensureSelected(data.tts?.items || ttsItems.value, ttsModel.value)
+        ttsVoiceItems.value = ensureSelected(data.ttsVoice?.items || ttsVoiceItems.value, ttsVoice.value)
         llmItems.value = ensureSelected(mergeLatencies(llmItems.value, data.llm.items || []), llmModel.value)
       } else {
         asrItems.value = ensureSelected(data.asr.items || [], data.asr.selected || asrModel.value)
+        ttsItems.value = ensureSelected(data.tts?.items || [], data.tts?.selected || ttsModel.value)
+        ttsVoiceItems.value = ensureSelected(data.ttsVoice?.items || [], data.ttsVoice?.selected || ttsVoice.value)
         llmItems.value = ensureSelected(data.llm.items || [], data.llm.selected || llmModel.value)
         if (data.asr.selected) asrModel.value = data.asr.selected
+        if (data.tts?.selected) ttsModel.value = data.tts.selected
+        if (data.ttsVoice?.selected) ttsVoice.value = data.ttsVoice.selected
         if (data.llm.selected) llmModel.value = data.llm.selected
         if (typeof data.nluRulesEnabled === 'boolean') nluRulesEnabled.value = data.nluRulesEnabled
         if (typeof data.nluMaxIntents === 'number') nluMaxIntents.value = data.nluMaxIntents
@@ -219,7 +258,7 @@ async function loadProviders(probe: boolean) {
     })
   } catch (e: any) {
     if (seq !== loadSeq || signal.aborted || e?.code === 'ERR_CANCELED' || e?.name === 'CanceledError') return
-    if (probe) ElMessage.warning(e?.message || '延迟探测失败')
+    ElMessage.warning(e?.message || (probe ? '延迟探测失败' : '无法加载模型列表'))
   }
 }
 
@@ -237,6 +276,26 @@ async function onAsrChange(id: string) {
     await setVoiceProviders({ asrModel: id })
   } catch (e: any) {
     ElMessage.error(e?.message || '保存 ASR 失败')
+  }
+}
+
+async function onTtsChange(id: string) {
+  if (ignoreChange || !id) return
+  try {
+    const res = await setVoiceProviders({ ttsModel: id })
+    if (res.ttsVoice) ttsVoice.value = res.ttsVoice
+    await loadProviders(false)
+  } catch (e: any) {
+    ElMessage.error(e?.message || '保存 TTS 失败')
+  }
+}
+
+async function onTtsVoiceChange(id: string) {
+  if (ignoreChange || !id) return
+  try {
+    await setVoiceProviders({ ttsVoice: id })
+  } catch (e: any) {
+    ElMessage.error(e?.message || '保存音色失败')
   }
 }
 
@@ -510,6 +569,9 @@ onBeforeUnmount(() => {
 }
 .model-select {
   width: 220px;
+}
+.voice-select {
+  width: 140px;
 }
 .max-intents {
   width: 110px;

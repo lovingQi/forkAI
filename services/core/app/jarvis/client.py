@@ -12,6 +12,11 @@ from .station_names import extract_path_point_names
 _MAP_NAMES_TTL_S = 60.0
 
 
+def _loopback(url: str) -> bool:
+    u = (url or "").lower()
+    return "127.0.0.1" in u or "localhost" in u or "[::1]" in u
+
+
 class JarvisError(Exception):
     pass
 
@@ -19,7 +24,10 @@ class JarvisError(Exception):
 class JarvisClient:
     def __init__(self, cfg: dict):
         self._base = cfg["jarvis"]["baseUrl"].rstrip("/")
-        self._client = httpx.AsyncClient(timeout=httpx.Timeout(10.0, connect=3.0))
+        self._client = httpx.AsyncClient(
+            timeout=httpx.Timeout(10.0, connect=3.0),
+            trust_env=not _loopback(self._base),
+        )
         self._map_names: list[str] | None = None
         self._map_names_at = 0.0
 

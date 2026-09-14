@@ -12,6 +12,21 @@ import wave
 
 import httpx
 
+from ..g2a import (
+    G2A_TTS_MODELS,
+    G2A_TTS_VOICES,
+    g2a_base,
+    g2a_enabled,
+    g2a_key,
+    g2a_language,
+    g2a_timeout,
+    g2a_tts_model,
+    g2a_tts_voice,
+    g2a_voice_name,
+    http_client as g2a_http,
+    is_g2a_tts,
+)
+
 _http: httpx.AsyncClient | None = None
 _warned_no_key = False
 
@@ -30,7 +45,73 @@ async def close_client() -> None:
         _http = None
 
 
+def current_tts_model(cfg: dict) -> str:
+    tts = cfg.get("tts") or {}
+    selected = str(tts.get("model") or "").strip()
+    if selected:
+        return selected
+    return str((tts.get("cloud") or {}).get("model") or "FunAudioLLM/CosyVoice2-0.5B")
+
+
+def tts_display_name(model_id: str) -> str:
+    mid = (model_id or "").strip()
+    if mid == "grok-voice-latest":
+        return "Grok Voice"
+    if mid == "grok-voice-think-fast-1.0":
+        return "Grok Voice Fast 1.0"
+    if mid == "grok-voice-think-fast-2.0":
+        return "Grok Voice Fast 2.0"
+    if is_g2a_tts(mid):
+        return mid
+    return mid.rsplit("/", 1)[-1] or mid
+
+
+def list_tts_models(cfg: dict) -> list[str]:
+    ids: list[str] = []
+    sf = str(((cfg.get("tts") or {}).get("cloud") or {}).get("model") or "")
+    if sf:
+        ids.append(sf)
+    if g2a_enabled(cfg):
+        for mid in (g2a_tts_model(cfg), *G2A_TTS_MODELS):
+            if mid and mid not in ids:
+                ids.append(mid)
+    selected = current_tts_model(cfg)
+    if selected and selected in ids:
+        ids = [mid for mid in ids if mid != selected]
+        ids.insert(0, selected)
+    elif selected:
+        ids.insert(0, selected)
+    return ids
+
+
+def current_tts_voice(cfg: dict) -> str:
+    if is_g2a_tts(current_tts_model(cfg)):
+        vid = g2a_tts_voice(cfg)
+        allowed = {oid for oid, _ in G2A_TTS_VOICES}
+        return vid if vid in allowed else "eve"
+    return str(((cfg.get("tts") or {}).get("cloud") or {}).get("voice") or "anna")
+
+
+def list_tts_voices(cfg: dict) -> list[dict]:
+    if is_g2a_tts(current_tts_model(cfg)):
+        items = [{"id": oid, "name": name} for oid, name in G2A_TTS_VOICES]
+        selected = current_tts_voice(cfg)
+        if selected and selected not in {it["id"] for it in items}:
+            items.insert(0, {"id": selected, "name": g2a_voice_name(selected)})
+        return items
+    vid = current_tts_voice(cfg)
+    return [{"id": vid, "name": vid}]
+
+
 def cloud_enabled(cfg: dict) -> bool:
+    global _warned_no_key
+    if is_g2a_tts(current_tts_model(cfg)):
+        if g2a_enabled(cfg) and g2a_key(cfg):
+            return True
+        if not _warned_no_key:
+            print("[forkai-core] TTS 已选 Grok2API 但 FORKAI_G2A_API_KEY 为空，回退 piper")
+            _warned_no_key = True
+        return False
     cloud = (cfg.get("tts") or {}).get("cloud") or {}
     if not cloud.get("enabled"):
         return False
@@ -38,7 +119,6 @@ def cloud_enabled(cfg: dict) -> bool:
     key = os.environ.get(env_name, "").strip()
     if key:
         return True
-    global _warned_no_key
     if not _warned_no_key:
         print(f"[forkai-core] TTS 云端已启用但环境变量 {env_name} 为空，回退 piper")
         _warned_no_key = True
@@ -68,6 +148,8 @@ def normalize_wav(data: bytes) -> bytes:
 
 
 async def synthesize_cloud(cfg: dict, text: str) -> bytes:
+    if is_g2a_tts(current_tts_model(cfg)):
+        return await _synthesize_g2a(cfg, text)
     cloud = (cfg.get("tts") or {}).get("cloud") or {}
     env_name = str(cloud.get("api_key_env") or "FORKAI_TTS_API_KEY")
     api_key = os.environ.get(env_name, "").strip()
@@ -89,4 +171,26 @@ async def synthesize_cloud(cfg: dict, text: str) -> bytes:
     )
     if not 200 <= res.status_code < 300:
         raise RuntimeError(f"tts cloud {res.status_code}")
+    return normalize_wav(res.content)
+
+
+async def _synthesize_g2a(cfg: dict, text: str) -> bytes:
+    key = g2a_key(cfg)
+    if not key:
+        raise RuntimeError("tts g2a no_key")
+    model = current_tts_model(cfg)
+    res = await g2a_http().post(
+        f"{g2a_base(cfg)}/audio/speech",
+        headers={"Authorization": f"Bearer {key}"},
+        json={
+            "model": model,
+            "input": text,
+            "voice": g2a_tts_voice(cfg),
+            "response_format": "wav",
+            "language": g2a_language(cfg),
+        },
+        timeout=g2a_timeout(cfg, 20.0),
+    )
+    if not 200 <= res.status_code < 300:
+        raise RuntimeError(f"tts g2a {res.status_code}")
     return normalize_wav(res.content)

@@ -4,8 +4,9 @@ from __future__ import annotations
 import base64
 
 from .cache import cache_get, cache_key, cache_put
-from .cloud import cloud_enabled, synthesize_cloud
+from .cloud import cloud_enabled, current_tts_model, is_g2a_tts, synthesize_cloud
 from .piper import _RATE, _RATE_DEFAULT, synthesize_piper
+from ..g2a import g2a_tts_voice
 
 
 def _mock(text: str, style: str) -> dict:
@@ -32,6 +33,9 @@ def _ok(text: str, style: str, voice: str, engine: str, wav_bytes: bytes) -> dic
 
 
 def _cloud_ids(cfg: dict) -> tuple[str, str]:
+    model = current_tts_model(cfg)
+    if is_g2a_tts(model):
+        return model, g2a_tts_voice(cfg)
     cloud = (cfg.get("tts") or {}).get("cloud") or {}
     return str(cloud.get("model") or ""), str(cloud.get("voice") or "anna")
 
