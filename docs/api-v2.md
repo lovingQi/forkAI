@@ -32,6 +32,9 @@
 | POST | /api/voice/stop | — | 等价于以 ptt 通道执行"停止" |
 | GET | /api/voice/providers | `?probe=1` 打开下拉时测 ASR/LLM 延迟 | `{"asr":{...},"tts":{...},"ttsVoice":{...},"llm":{...},"nluRulesEnabled","nluMaxIntents","llmThinkingEnabled"}` |
 | PUT | /api/voice/providers | `{asrModel?,ttsModel?,ttsVoice?,llmModel?,nluRulesEnabled?,nluMaxIntents?,llmThinkingEnabled?}` | 写入 `runtime_models.yaml`；`nluMaxIntents` 夹紧 1～8 |
+| GET | /api/voice/tts-cache | — | `{files,bytes,model,voice,prewarm:{running,total,hit,synthesized,failed}}` |
+| POST | /api/voice/tts-cache/clear | — | 停止预热并删除全部 TTS WAV 缓存 |
+| POST | /api/voice/tts-cache/prewarm | — | 按当前 TTS 模型/音色后台预热；已在跑则 `409 prewarm_running` |
 
 响应说明：`errorCode`/`audioBase64` 为空时省略该键；`intents` 为完整意图数组（复合指令多元素）；追问/待确认时 `utterance` 为追问或确认话术（如 `请告诉我起点`、`确认执行任务流取货演示流程吗`）。
 

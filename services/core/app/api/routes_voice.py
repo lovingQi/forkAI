@@ -30,6 +30,8 @@ from ..nlu.rules import correct_asr, match_wake_word, wake_word_pattern
 from ..speak import render, resolve_target
 from ..g2a import G2A_TTS_VOICES, is_g2a_tts
 from ..tts.cloud import current_tts_model, current_tts_voice, list_tts_models, list_tts_voices, tts_display_name
+from ..tts.cache import cache_clear, cache_stats
+from ..tts.prewarm import start_prewarm, stop_prewarm
 from ..tts.service import synthesize
 from .deps import auth, read_body
 
@@ -345,6 +347,59 @@ async def voice_providers_put(request: Request, client_id: str = Depends(auth)):
         "nluMaxIntents": clamp_max_intents(nlu.get("max_intents", 5)),
         "llmThinkingEnabled": bool(llm_cfg.get("thinking_enabled", False)),
     }
+
+
+def _tts_cache_payload(request: Request) -> dict:
+    cfg = request.app.state.cfg
+    st = cache_stats(cfg)
+    pw = getattr(request.app.state, "prewarm_stats", None) or {}
+    task = getattr(request.app.state, "prewarm_task", None)
+    running = bool(pw.get("running")) or (task is not None and not task.done())
+    return {
+        "files": st["files"],
+        "bytes": st["bytes"],
+        "model": current_tts_model(cfg),
+        "voice": current_tts_voice(cfg),
+        "prewarm": {
+            "running": running,
+            "total": int(pw.get("total") or 0),
+            "hit": int(pw.get("hit") or 0),
+            "synthesized": int(pw.get("synthesized") or 0),
+            "failed": int(pw.get("failed") or 0),
+        },
+    }
+
+
+@router.get("/api/voice/tts-cache")
+async def tts_cache_get(request: Request, client_id: str = Depends(auth)):
+    return _tts_cache_payload(request)
+
+
+@router.post("/api/voice/tts-cache/clear")
+async def tts_cache_clear(request: Request, client_id: str = Depends(auth)):
+    await stop_prewarm(request.app)
+    cleared = cache_clear(request.app.state.cfg)
+    out = _tts_cache_payload(request)
+    out["succeed"] = True
+    out["removed"] = cleared["removed"]
+    print(
+        f"[forkai-core] TTS cache cleared removed={cleared['removed']} "
+        f"filesBefore={cleared['filesBefore']}",
+        flush=True,
+    )
+    return out
+
+
+@router.post("/api/voice/tts-cache/prewarm")
+async def tts_cache_prewarm(request: Request, client_id: str = Depends(auth)):
+    if not start_prewarm(request.app):
+        return JSONResponse(
+            status_code=409,
+            content={"succeed": False, "error": "prewarm_running", **_tts_cache_payload(request)},
+        )
+    out = _tts_cache_payload(request)
+    out["succeed"] = True
+    return out
 
 
 # ---- WS /ws/audio：二进制 PCM16 16kHz mono 缓冲 → 云端整句 ASR → run_utterance ----

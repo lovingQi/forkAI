@@ -1,6 +1,7 @@
 asr_model: XingChenAGI/XingChenASR-V3.2-Ultra
-tts_model: grok-voice-latest
+tts_model: grok-voice-think-fast-2.0
+tts_voice: eve
 llm_model: deepseek-flash
-nlu_rules_enabled: true
+nlu_rules_enabled: false
 nlu_max_intents: 5
 llm_thinking_enabled: false

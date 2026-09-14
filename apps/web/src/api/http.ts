@@ -122,6 +122,49 @@ export async function voiceText(text: string, channel: 'cabin' | 'ptt') {
   }
 }
 
+export async function getTtsCache() {
+  const { data } = await http.get('/voice/tts-cache')
+  return data as {
+    files: number
+    bytes: number
+    model: string
+    voice: string
+    prewarm: {
+      running: boolean
+      total: number
+      hit: number
+      synthesized: number
+      failed: number
+    }
+  }
+}
+
+export async function clearTtsCache() {
+  const { data } = await http.post('/voice/tts-cache/clear', {}, { timeout: 30000 })
+  return data as {
+    succeed: boolean
+    removed: number
+    files: number
+    bytes: number
+  }
+}
+
+export async function startTtsPrewarm() {
+  const { data } = await http.post('/voice/tts-cache/prewarm')
+  return data as {
+    succeed: boolean
+    files: number
+    bytes: number
+    prewarm: {
+      running: boolean
+      total: number
+      hit: number
+      synthesized: number
+      failed: number
+    }
+  }
+}
+
 export async function voiceStop() {
   const { data } = await http.post('/voice/stop')
   return data

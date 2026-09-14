@@ -103,6 +103,9 @@
       />
       <el-button type="danger" @click="onStop">停</el-button>
       <el-button @click="showText = !showText">文本调试</el-button>
+      <el-button :loading="cacheBusy" @click="onClearCache">清缓存</el-button>
+      <el-button type="success" :loading="prewarming" @click="onPrewarm">预热</el-button>
+      <span class="sub">{{ cacheHint }}</span>
     </div>
 
     <div v-if="showText" class="row">
@@ -130,9 +133,18 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useSessionStore } from '@/stores/session'
-import { getPairToken, getVoiceProviders, setVoiceProviders, voiceStop, type VoiceProviderItem } from '@/api/http'
+import {
+  clearTtsCache,
+  getPairToken,
+  getTtsCache,
+  getVoiceProviders,
+  setVoiceProviders,
+  startTtsPrewarm,
+  voiceStop,
+  type VoiceProviderItem
+} from '@/api/http'
 import { AudioWs, MicCapture, type AudioFinalMessage } from '@/api/audio'
 
 const session = useSessionStore()
@@ -152,6 +164,19 @@ const asrItems = ref<VoiceProviderItem[]>([])
 const ttsItems = ref<VoiceProviderItem[]>([])
 const ttsVoiceItems = ref<VoiceProviderItem[]>([])
 const llmItems = ref<VoiceProviderItem[]>([])
+const cacheBusy = ref(false)
+const prewarming = ref(false)
+const cacheFiles = ref(0)
+const prewarmTotal = ref(0)
+const prewarmDone = ref(0)
+let cachePoll: number | null = null
+const cacheHint = computed(() => {
+  if (prewarming.value && prewarmTotal.value > 0) {
+    return `预热 ${prewarmDone.value}/${prewarmTotal.value}`
+  }
+  if (prewarming.value) return '预热中…'
+  return `缓存 ${cacheFiles.value} 条`
+})
 const textPlaceholder = computed(() => {
   if (pttDown.value) return '聆听中…'
   if (recognizing.value) return '识别中…'
@@ -495,6 +520,84 @@ async function onStop() {
   }
 }
 
+function applyCache(data: {
+  files?: number
+  removed?: number
+  prewarm?: { running?: boolean; total?: number; hit?: number; synthesized?: number }
+}) {
+  cacheFiles.value = Number(data?.files || 0)
+  const pw = data?.prewarm
+  prewarming.value = Boolean(pw?.running)
+  prewarmTotal.value = Number(pw?.total || 0)
+  prewarmDone.value = Number(pw?.hit || 0) + Number(pw?.synthesized || 0)
+}
+
+function stopCachePoll() {
+  if (cachePoll != null) {
+    window.clearInterval(cachePoll)
+    cachePoll = null
+  }
+}
+
+function startCachePoll() {
+  if (cachePoll != null) return
+  cachePoll = window.setInterval(() => {
+    void refreshCache()
+  }, 1500)
+}
+
+async function refreshCache() {
+  if (!getPairToken()) return
+  try {
+    const data = await getTtsCache()
+    applyCache(data)
+    if (data.prewarm?.running) startCachePoll()
+    else stopCachePoll()
+  } catch {
+    /* 未配对时忽略 */
+  }
+}
+
+async function onClearCache() {
+  try {
+    await ElMessageBox.confirm(
+      '将删除全部已缓存的 TTS 音频，下次播报会重新合成。正在进行的预热也会停止。',
+      '清理 TTS 缓存',
+      { type: 'warning', confirmButtonText: '清理', cancelButtonText: '取消' }
+    )
+  } catch {
+    return
+  }
+  cacheBusy.value = true
+  try {
+    const data = await clearTtsCache()
+    applyCache(data)
+    stopCachePoll()
+    ElMessage.success(`已清理 ${data.removed ?? 0} 条缓存`)
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.error || e?.message || '清理缓存失败')
+  } finally {
+    cacheBusy.value = false
+  }
+}
+
+async function onPrewarm() {
+  try {
+    const data = await startTtsPrewarm()
+    applyCache(data)
+    startCachePoll()
+    ElMessage.success('已开始预热当前音色')
+  } catch (e: any) {
+    if (e?.response?.status === 409) {
+      applyCache(e.response.data)
+      startCachePoll()
+      ElMessage.info('预热已在进行')
+      return
+    }
+    ElMessage.error(e?.response?.data?.error || e?.message || '启动预热失败')
+  }
+}
+
 function isTypingTarget(el: EventTarget | null): boolean {
   if (!(el instanceof HTMLElement)) return false
   const tag = el.tagName
@@ -530,6 +633,7 @@ function onWindowBlur() {
 
 onMounted(() => {
   void loadProviders(false)
+  void refreshCache()
   if (getPairToken()) void ensureMic()
   window.addEventListener('keydown', onSpaceDown)
   window.addEventListener('keyup', onSpaceUp)
@@ -538,6 +642,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   loadAbort?.abort()
+  stopCachePoll()
   window.removeEventListener('keydown', onSpaceDown)
   window.removeEventListener('keyup', onSpaceUp)
   window.removeEventListener('blur', onWindowBlur)

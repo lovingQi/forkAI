@@ -23,6 +23,32 @@ def cache_key(model: str, voice: str, text: str) -> str:
     return hashlib.sha1(raw).hexdigest()
 
 
+def cache_stats(cfg: dict) -> dict:
+    d = cache_dir(cfg)
+    files = [p for p in d.glob("*.wav") if p.is_file()]
+    bytes_n = 0
+    for p in files:
+        try:
+            bytes_n += p.stat().st_size
+        except OSError:
+            pass
+    return {"files": len(files), "bytes": bytes_n}
+
+
+def cache_clear(cfg: dict) -> dict:
+    """删除 cache_dir 内 wav / 半写入 tmp，返回删除前统计。"""
+    d = cache_dir(cfg)
+    before = cache_stats(cfg)
+    removed = 0
+    for p in list(d.glob("*.wav")) + list(d.glob("*.wav.tmp")):
+        try:
+            p.unlink()
+            removed += 1
+        except OSError:
+            pass
+    return {"removed": removed, "filesBefore": before["files"], "bytesBefore": before["bytes"]}
+
+
 def cache_get(cfg: dict, key: str) -> bytes | None:
     path = cache_dir(cfg) / f"{key}.wav"
     try:

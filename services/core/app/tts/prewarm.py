@@ -82,52 +82,108 @@ def build_prewarm_texts(cfg: dict, flow_names: list[str]) -> list[str]:
     return out
 
 
-async def prewarm(cfg: dict, flow_store, stop_event: asyncio.Event) -> dict:
+async def prewarm(
+    cfg: dict, flow_store, stop_event: asyncio.Event, stats: dict | None = None
+) -> dict:
     """跳过已缓存键，并发 3，连续失败 3 次终止。"""
-    stats = {"total": 0, "hit": 0, "synthesized": 0, "failed": 0}
-    if not cloud_enabled(cfg):
-        print("[forkai-core] TTS 预热跳过：云端未启用")
-        return stats
-    flow_names: list[str] = []
-    if flow_store is not None:
-        flow_names = [f.get("name") or "" for f in await flow_store.list()]
-    texts = build_prewarm_texts(cfg, flow_names)
-    stats["total"] = len(texts)
-    model, voice = _cloud_ids(cfg)
-    sem = asyncio.Semaphore(3)
-    consecutive_fail = 0
-    lock = asyncio.Lock()
+    if stats is None:
+        stats = empty_stats()
+    stats["running"] = True
+    stats["total"] = 0
+    stats["hit"] = 0
+    stats["synthesized"] = 0
+    stats["failed"] = 0
+    try:
+        if not cloud_enabled(cfg):
+            print("[forkai-core] TTS 预热跳过：云端未启用")
+            return stats
+        flow_names: list[str] = []
+        if flow_store is not None:
+            flow_names = [f.get("name") or "" for f in await flow_store.list()]
+        texts = build_prewarm_texts(cfg, flow_names)
+        stats["total"] = len(texts)
+        model, voice = _cloud_ids(cfg)
+        sem = asyncio.Semaphore(3)
+        consecutive_fail = 0
+        lock = asyncio.Lock()
 
-    async def one(text: str) -> None:
-        nonlocal consecutive_fail
-        if stop_event.is_set():
-            return
-        key = cache_key(model, voice, text)
-        if cache_get(cfg, key) is not None:
-            async with lock:
-                stats["hit"] += 1
-            return
-        async with sem:
+        async def one(text: str) -> None:
+            nonlocal consecutive_fail
             if stop_event.is_set():
                 return
-            try:
-                wav = await synthesize_cloud(cfg, text)
-                cache_put(cfg, key, wav)
+            key = cache_key(model, voice, text)
+            if cache_get(cfg, key) is not None:
                 async with lock:
-                    consecutive_fail = 0
-                    stats["synthesized"] += 1
-            except Exception as e:
-                async with lock:
-                    consecutive_fail += 1
-                    stats["failed"] += 1
-                    fail_n = consecutive_fail
-                print(f"[forkai-core] TTS 预热失败: {e}")
-                if fail_n >= 3:
-                    stop_event.set()
+                    stats["hit"] += 1
+                return
+            async with sem:
+                if stop_event.is_set():
+                    return
+                try:
+                    wav = await synthesize_cloud(cfg, text)
+                    cache_put(cfg, key, wav)
+                    async with lock:
+                        consecutive_fail = 0
+                        stats["synthesized"] += 1
+                except Exception as e:
+                    async with lock:
+                        consecutive_fail += 1
+                        stats["failed"] += 1
+                        fail_n = consecutive_fail
+                    print(f"[forkai-core] TTS 预热失败: {e}")
+                    if fail_n >= 3:
+                        stop_event.set()
 
-    await asyncio.gather(*(one(t) for t in texts))
-    print(
-        f"[forkai-core] TTS 预热完成 total={stats['total']} hit={stats['hit']} "
-        f"synthesized={stats['synthesized']} failed={stats['failed']}"
+        await asyncio.gather(*(one(t) for t in texts))
+        print(
+            f"[forkai-core] TTS 预热完成 total={stats['total']} hit={stats['hit']} "
+            f"synthesized={stats['synthesized']} failed={stats['failed']}"
+        )
+        return stats
+    finally:
+        stats["running"] = False
+
+
+def empty_stats() -> dict:
+    return {"total": 0, "hit": 0, "synthesized": 0, "failed": 0, "running": False}
+
+
+def attach_prewarm_state(app) -> None:
+    app.state.prewarm_stop = asyncio.Event()
+    app.state.prewarm_task = None
+    app.state.prewarm_stats = empty_stats()
+
+
+def start_prewarm(app) -> bool:
+    task = getattr(app.state, "prewarm_task", None)
+    if task is not None and not task.done():
+        return False
+    stop = asyncio.Event()
+    stats = empty_stats()
+    stats["running"] = True
+    app.state.prewarm_stop = stop
+    app.state.prewarm_stats = stats
+    app.state.prewarm_task = asyncio.create_task(
+        prewarm(app.state.cfg, app.state.flow_store, stop, stats)
     )
-    return stats
+    return True
+
+
+async def stop_prewarm(app) -> None:
+    stop = getattr(app.state, "prewarm_stop", None)
+    if stop is not None:
+        stop.set()
+    task = getattr(app.state, "prewarm_task", None)
+    if task is not None and not task.done():
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=20)
+        except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+    app.state.prewarm_task = None
+    st = getattr(app.state, "prewarm_stats", None)
+    if isinstance(st, dict):
+        st["running"] = False

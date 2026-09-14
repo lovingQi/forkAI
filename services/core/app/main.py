@@ -28,7 +28,7 @@ from .taskflow.store import FlowStore
 from .asr.cloud import close_asr_client
 from .g2a import close_g2a_client
 from .tts.cloud import close_client as close_tts_cloud
-from .tts.prewarm import prewarm
+from .tts.prewarm import attach_prewarm_state, start_prewarm, stop_prewarm
 
 cfg = load_config()
 
@@ -67,8 +67,7 @@ app.state.executor = executor
 app.state.llm = llm
 app.state.flow_store = flow_store
 app.state.flow_engine = flow_engine
-_prewarm_task: asyncio.Task | None = None
-_prewarm_stop = asyncio.Event()
+attach_prewarm_state(app)
 
 
 @app.exception_handler(UnpairedError)
@@ -110,18 +109,12 @@ async def _startup_log():
     await flow_engine.restore_snapshot()
     tts_cfg = cfg.get("tts") or {}
     if tts_cfg.get("prewarm_on_startup"):
-        global _prewarm_task
-        _prewarm_stop.clear()
-        _prewarm_task = asyncio.create_task(prewarm(cfg, flow_store, _prewarm_stop))
+        start_prewarm(app)
 
 
 @app.on_event("shutdown")
 async def _shutdown():
-    global _prewarm_task
-    _prewarm_stop.set()
-    if _prewarm_task is not None:
-        _prewarm_task.cancel()
-        _prewarm_task = None
+    await stop_prewarm(app)
     await alarm_monitor.stop()
     await flow_engine.shutdown()
     await llm.close()
