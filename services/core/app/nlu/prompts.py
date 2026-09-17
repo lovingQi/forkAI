@@ -42,7 +42,7 @@ def system_prompt(max_intents: int) -> str:
 - QUERY_SPEED 查当前速度 / QUERY_TASK 查当前任务
 - QUERY_ALARM_EXPLAIN 解释当前告警该怎么处理
 - QUERY_STATUS 查车况（电量/模式/当前任务/告警的综合状态）
-- TASK_HEAD 调头，slots: {{"angle": 角度数字}}
+- TASK_HEAD 原地旋转/调头，slots: {{"angle": 角度数字}}（左/逆时针为正，右/顺时针为负；掉头=180）
 - TASK_FOLLOW_BACK 点到点跟车（从A到B / 从A去B / 盲叉取货），slots: {{"start_name": "起点", "target_name": "终点", "get_pallet": true或false}}
 - TASK_GET_PALLET 相机识别栈板取货 / TASK_CHARGE 去充电桩充电，slots: {{"goal": "充电桩名,可省略"}}
 - CONFIRM 确认 / CANCEL 取消
@@ -52,6 +52,7 @@ def system_prompt(max_intents: int) -> str:
 约束：
 - 只输出 JSON，不要解释
 - 意图名只能从上面的列表中选，不要发明新名字；左=LEFT，右=RIGHT
+- 「顺时针/逆时针 + 角度」必须是 TASK_HEAD（带 angle），禁止收成 TURN_LEFT/TURN_RIGHT 点动
 - 无法识别、与叉车无关、或整句被否定掉（如「不要前进」）时输出 {{"intents": []}}
 - 数字单位：高度一律毫米，点动线速度幅度一律毫米每秒（trans）
 - 复合指令按最终要执行的顺序输出，最多 {n} 条；被「不/别/不要/不是/改成/还是」否定或纠正的动作不要出现
@@ -74,6 +75,12 @@ def system_prompt(max_intents: int) -> str:
 
 输入：原地旋转90度，再从P1点去P4点
 输出：{{"intents": [{{"intent": "TASK_HEAD", "slots": {{"angle": 90}}}}, {{"intent": "TASK_FOLLOW_BACK", "slots": {{"start_name": "p1", "target_name": "p4"}}}}]}}
+
+输入：顺时针转90度
+输出：{{"intents": [{{"intent": "TASK_HEAD", "slots": {{"angle": -90}}}}]}}
+
+输入：逆时针转90度
+输出：{{"intents": [{{"intent": "TASK_HEAD", "slots": {{"angle": 90}}}}]}}
 
 输入：从P1点到P4点
 输出：{{"intents": [{{"intent": "TASK_FOLLOW_BACK", "slots": {{"start_name": "p1", "target_name": "p4"}}}}]}}

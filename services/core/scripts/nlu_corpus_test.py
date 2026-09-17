@@ -37,9 +37,9 @@ CORPUS: list[tuple[str, str, dict | None]] = [
     ("加速", "SPEED_UP", None),
     ("慢点", "SPEED_DOWN", None),
     ("减速", "SPEED_DOWN", None),
-    ("速度调到35", "SPEED_SET", {"n": 35}),
-    ("速度调到35%", "SPEED_SET", {"n": 35}),
-    ("调到50%", "SPEED_SET", {"n": 50}),
+    ("速度调到500", "SPEED_SET", {"n": 500}),
+    ("速度调到1000", "SPEED_SET", {"n": 1000}),
+    ("速度调到100%", "SPEED_SET", {"n": 100}),
     # ---- 货叉 ----
     ("升起货叉", "FORK_LIFT_UP", None),
     ("升叉", "FORK_LIFT_UP", None),
@@ -53,6 +53,10 @@ CORPUS: list[tuple[str, str, dict | None]] = [
     ("原地转90度", "TASK_HEAD", {"angle": 90}),
     ("向左转45度", "TASK_HEAD", {"angle": 45}),
     ("向右转90度", "TASK_HEAD", {"angle": -90}),
+    ("顺时针转90度", "TASK_HEAD", {"angle": -90}),
+    ("逆时针转90度", "TASK_HEAD", {"angle": 90}),
+    ("顺时针旋转30度", "TASK_HEAD", {"angle": -30}),
+    ("逆时针旋转30度", "TASK_HEAD", {"angle": 30}),
     ("掉头", "TASK_HEAD", {"angle": 180}),
     # ---- 任务 ----
     ("从A点到B点", "TASK_FOLLOW_BACK", {"start_name": "A", "target_name": "B"}),
@@ -150,6 +154,8 @@ def run() -> int:
         ("不要停", "need_llm", False),
         ("升到2米然后去A区", "need_llm", False),
         ("原地旋转90度再从P1点去P4点", "need_llm", False),
+        ("顺时针转90度", "rule", False),
+        ("逆时针转90度", "rule", False),
     ]
     for text, want_via, want_stop in gate:
         via, _ = rule_route(text)

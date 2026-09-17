@@ -60,7 +60,8 @@ def norm(text: str) -> str:
 
 
 def _slot_speed_set(m: re.Match) -> dict:
-    return {"n": min(100, int(m.group(1) or m.group(0)))}
+    # n = 点动 trans 幅度 mm/s（配置上限 1000）；规则层先截到 1000，router 再按 cfg 夹紧
+    return {"n": min(1000, int(m.group(1) or m.group(0)))}
 
 
 def _bare_station(name: str) -> str:
@@ -87,19 +88,20 @@ def _slot_fork_to(m: re.Match) -> dict:
 
 
 def _slot_head(m: re.Match) -> dict:
-    """TASK_HEAD：角度（左正右负，无方向默认正）；掉头=180；无角度 → {}（触发追问）。"""
+    """TASK_HEAD：角度（左/逆时针为正，右/顺时针为负；无方向默认正）；掉头=180；无角度 → {}。"""
     if m.re.pattern == r"掉头":
         return {"angle": 180}
     direction = None
     value = None
     for g in m.groups():
-        if g in ("左", "右"):
+        if g in ("左", "右", "顺时针", "逆时针"):
             direction = g
         elif g and re.fullmatch(r"\d+(\.\d+)?", g):
             value = float(g)
     if value is None:
         return {}
-    angle = value if direction != "右" else -value
+    # 左正右负；逆时针=正、顺时针=负（与真车实测一致）
+    angle = -value if direction in ("右", "顺时针") else value
     return {"angle": int(angle) if angle == int(angle) else angle}
 
 
@@ -148,10 +150,12 @@ RULES = [
     {"name": "FLOW_CANCEL", "patterns": [r"^取消(任务|任务流)$"]},
     {"name": "STOP", "patterns": [r"停止", r"停下", r"停车", r"急停", r"^停$"]},
     # TASK_HEAD 必须在 TURN_LEFT/RIGHT 之前：带"度"的转向是原地旋转任务，
-    # 无角度的连续转向仍走 TURN_*（点动），两者零冲突（有"度"才命中 TASK_HEAD）
+    # 无角度的连续转向仍走 TURN_*（点动），两者零冲突（有"度"才命中 TASK_HEAD）。
+    # 顺/逆时针须整句命中，否则「转90度」命中后残余「顺时针」会逼走 LLM 误成 TURN_RIGHT。
     {
         "name": "TASK_HEAD",
         "patterns": [
+            r"(顺时针|逆时针)(?:旋转|转)(\d+(?:\.\d+)?)度",
             r"原地(?:旋转|转)(?:向)?(左|右)?(\d+(?:\.\d+)?)?度?",
             r"(向)?(左|右)?转(\d+(?:\.\d+)?)度",
             r"掉头",
