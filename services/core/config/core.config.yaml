@@ -9,10 +9,14 @@ siteSessionTtlMs: 2700000
 pairCodeTtlMs: 300000
 pairTokenTtlMs: 86400000
 wakeArmMs: 30000
+# 点动：trans 幅度（mm/s）；jarvis body.speed / rot 幅度见 drive.*
 speed:
-  default: 20
-  max: 40
-  step: 5
+  default: 500
+  max: 1000
+  step: 100
+drive:
+  control_speed: 50
+  rot: 50
 wakeWords:
   - 玖物玖物
   - 玖物，玖物

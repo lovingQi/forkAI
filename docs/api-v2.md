@@ -133,7 +133,7 @@
 | charge | goal | name | | | "auto" | （不追问） |
 | charge | side / angle / waitTime | number | | | 0 / 5 / 10 | |
 | drive | duration_s | number | ✓ | | — | 请告诉我点动时长（秒） |
-| drive | trans / rot / speed | number | | | 1 / 0 / 20 | |
+| drive | trans / rot / speed | number | | | 500 / 0 / 50 | |
 
 确认策略：follow_back 参数齐后必须汇总确认（confirm=True）；head/get_pallet/charge 参数齐直接执行；货叉语音意图 |目标-当前| > confirm_threshold(100mm 可配) 时需确认。
 
@@ -151,7 +151,7 @@
 | TASK_HEAD | 原地转90度/左转45度/掉头 | head route（掉头=180°） |
 | FORK_LIFT_UP/DOWN | 升起货叉/升一点；放下货叉/降一点 | 货叉至 max/min |
 | FORK_LIFT_TO | 升到150毫米/升到1.5米/货叉调到210 | 货叉至指定高度（单位换算 mm） |
-| SPEED_UP/DOWN/SET | 快点/加速；慢点/减速；速度调到35 / 35% | 调速（5~max） |
+| SPEED_UP/DOWN/SET | 快点/加速；慢点/减速；速度调到500 / 1000 | 调 trans 幅度（step～max mm/s） |
 | IDLE / DOCK | 空闲/待机；回充/去充电 | control idle / dock |
 | GOTO_GOAL | 去A区/前往B点 | control goto |
 | TASK_FOLLOW_BACK | 从A点到B点/从A去B/盲叉取货 | follow_back route（盲叉→get_pallet=true） |

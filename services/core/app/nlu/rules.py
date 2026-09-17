@@ -11,6 +11,7 @@ MOTION_INTENTS = [
     "MOVE_BACK",
     "TURN_LEFT",
     "TURN_RIGHT",
+    "DRIVE_COMBINED",
     "SPEED_UP",
     "SPEED_DOWN",
     "SPEED_SET",
@@ -180,7 +181,8 @@ RULES = [
     },
     {
         "name": "SPEED_SET",
-        "patterns": [r"速度(?:调到|设为|到)?(\d{1,3})%?", r"(\d{1,3})\s*%"],
+        # n 为 trans 幅度 mm/s（默认 500、上限 1000）
+        "patterns": [r"速度(?:调到|设为|到)?(\d{1,4})%?", r"(\d{1,4})\s*%"],
         "slot": _slot_speed_set,
     },
     {"name": "SPEED_UP", "patterns": [r"快点", r"加速", r"快一点"]},

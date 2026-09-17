@@ -7,7 +7,7 @@
   "stop": "已停止",
   "speed_up": "好的，加速",
   "speed_down": "好的，减速",
-  "speed_set": "已调到百分之{n}",
+  "speed_set": "已调到{n}",
   "idle": "好的，空闲",
   "dock": "好的，回充",
   "fork_up": "好的，升起货叉",

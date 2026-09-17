@@ -55,6 +55,41 @@ def _wire_intent(intent: dict) -> dict:
     }
 
 
+_MOVE_NAMES = frozenset({"MOVE_FWD", "MOVE_BACK"})
+_TURN_NAMES = frozenset({"TURN_LEFT", "TURN_RIGHT"})
+
+
+def coalesce_drive_intents(intents: list) -> list:
+    """相邻的前进/后退 + 左转/右转合成一条 DRIVE_COMBINED（真车单条 drive）。"""
+    if not intents:
+        return intents
+    out: list = []
+    i = 0
+    while i < len(intents):
+        a = intents[i]
+        b = intents[i + 1] if i + 1 < len(intents) else None
+        an = a.get("name")
+        bn = b.get("name") if b else None
+        if b and (
+            (an in _MOVE_NAMES and bn in _TURN_NAMES)
+            or (an in _TURN_NAMES and bn in _MOVE_NAMES)
+        ):
+            move = a if an in _MOVE_NAMES else b
+            turn = a if an in _TURN_NAMES else b
+            out.append(
+                {
+                    "name": "DRIVE_COMBINED",
+                    "slots": {"move": move["name"], "turn": turn["name"]},
+                    "raw_text": (a.get("raw_text") or "") or (b.get("raw_text") or ""),
+                }
+            )
+            i += 2
+            continue
+        out.append(a)
+        i += 1
+    return out
+
+
 async def run_utterance(request: Request, client_id: str, channel: str, text: str) -> dict:
     cfg = request.app.state.cfg
     sessions = request.app.state.sessions
@@ -109,6 +144,7 @@ async def run_utterance(request: Request, client_id: str, channel: str, text: st
 
     corrected = correct_asr(text)
     intent_list = await parse_intent(corrected, getattr(request.app.state, "llm", None), cfg)
+    intent_list = coalesce_drive_intents(intent_list)
     ctx = {"client_id": client_id, "channel": channel, "wake_ok": wake_ok, "text": corrected}
 
     if not intent_list:

@@ -64,7 +64,7 @@ def build_prewarm_texts(cfg: dict, flow_names: list[str]) -> list[str]:
     for n in range(75, 211):
         texts.append(render("query_fork", {"n": n}))
         texts.append(render("fork_to", {"n": n}))
-    for n in range(5, 41):
+    for n in range(100, 1001, 100):
         texts.append(render("speed_set", {"n": n}))
     for mag in (30, 45, 60, 90, 120, 135, 180, 270, 360):
         texts.append(render("task_head", {"n": mag}))

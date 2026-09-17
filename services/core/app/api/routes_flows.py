@@ -29,9 +29,9 @@ _EXTRA_NODE_SCHEMAS = {
     "drive": {
         "route_cmd": "drive",
         "params": {
-            "trans": {"type": "number", "required": False, "default": 1},
+            "trans": {"type": "number", "required": False, "default": 500},
             "rot": {"type": "number", "required": False, "default": 0},
-            "speed": {"type": "number", "required": False, "default": 20},
+            "speed": {"type": "number", "required": False, "default": 50},
             "duration_s": {"type": "number", "required": True, "ask": "请告诉我点动时长（秒）"},
         },
     },

@@ -242,10 +242,10 @@ function worldToScreen(p: Point): Point {
   }
 }
 
-/** 航向转弧度。真车 Jarvis 为度（如 -86.58）；mock 为弧度（如 1.57）。 */
+/** 航向转弧度。真车 Jarvis pose.th 为度。 */
 function poseYawToRad(th: number): number {
   if (!Number.isFinite(th)) return 0
-  return Math.abs(th) > Math.PI * 2 ? (th * Math.PI) / 180 : th
+  return (th * Math.PI) / 180
 }
 
 function vehicleToScreen(lx: number, ly: number, ox: number, oy: number, th: number): Point {

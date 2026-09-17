@@ -188,14 +188,38 @@ class IntentExecutor:
                     "speak_style": "fail",
                 }
 
+        if name == "DRIVE_COMBINED":
+            # 复合点动：前进/后退 + 左转/右转 → 单条 drive（真车口径）
+            slots = intent.get("slots") or {}
+            move = slots.get("move")
+            turn = slots.get("turn")
+            mag = int(self._watchdog.speed)
+            rm = int(self._watchdog.rot_mag)
+            if move == "MOVE_FWD":
+                trans = mag
+                key = "move_fwd"
+            elif move == "MOVE_BACK":
+                trans = -mag
+                key = "move_back"
+            else:
+                trans = 0
+                key = "turn_left" if turn == "TURN_LEFT" else "turn_right"
+            # 前进：左+ / 右-；后退：左- / 右+（真车实测）
+            if turn == "TURN_LEFT":
+                rot = -rm if move == "MOVE_BACK" else rm
+            elif turn == "TURN_RIGHT":
+                rot = rm if move == "MOVE_BACK" else -rm
+            else:
+                rot = 0
+            return await self._drive(trans, rot, key)
         if name == "MOVE_FWD":
-            return await self._drive(1, 0, "move_fwd")
+            return await self._drive(self._watchdog.speed, 0, "move_fwd")
         if name == "MOVE_BACK":
-            return await self._drive(-1, 0, "move_back")
+            return await self._drive(-self._watchdog.speed, 0, "move_back")
         if name == "TURN_LEFT":
-            return await self._drive(0, 1, "turn_left")
+            return await self._drive(0, self._watchdog.rot_mag, "turn_left")
         if name == "TURN_RIGHT":
-            return await self._drive(0, -1, "turn_right")
+            return await self._drive(0, -self._watchdog.rot_mag, "turn_right")
 
         if name in FORK_INTENTS:
             return await self._handle_fork(intent, ctx)
@@ -204,6 +228,7 @@ class IntentExecutor:
             return await self._handle_task(intent, ctx)
 
         if name == "SPEED_UP":
+            # 调 trans 幅度（mm/s），非 jarvis body.speed
             self._watchdog.bump_speed(self._cfg["speed"]["step"])
             return _ok("speed_up", "move")
         if name == "SPEED_DOWN":

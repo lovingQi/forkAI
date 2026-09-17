@@ -43,12 +43,16 @@ app.add_middleware(
 bus = EventBus()
 sessions = SessionManager(cfg)
 jarvis = JarvisClient(cfg)
+_drive = cfg.get("drive") or {}
 watchdog = MotionWatchdog(
     jarvis,
     cfg["watchdogMs"],
     cfg["speed"]["max"],
     cfg["speed"]["default"],
     on_stop=lambda: bus.broadcast("watchdog_stop", {}),
+    step=int(cfg["speed"].get("step", 100)),
+    control_speed=int(_drive.get("control_speed", 50)),
+    rot_mag=int(_drive.get("rot", 50)),
 )
 executor = IntentExecutor(cfg, sessions, jarvis, watchdog)
 llm = LLMClient(cfg)

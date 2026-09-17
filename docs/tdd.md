@@ -42,7 +42,7 @@ forkAI 部署在叉车车载工控机，外部实体：
 
 - **职责**：进程装配单例——EventBus、SessionManager、JarvisClient、MotionWatchdog、IntentExecutor、LLMClient、AlarmMonitor、FlowStore、FlowEngine，挂到 `app.state`；注册 6 个路由；静态托管前端。
 - **关键行为**：CORS 全开（厂内局域网假设）；`UnpairedError` 全局转 401 `{"succeed":false,"error":"unpaired"}`；startup 钩子启动 `cabin_listener.start()`、`alarm_monitor.start()`、`flow_engine.restore_snapshot()`。
-- **配置**：`config/core.config.yaml` + 环境变量覆盖（`FORKAI_CORE_CONFIG`/`JARVIS_BASE_URL`/`FORKAI_PORT`/`VEHICLE_ID`）。关键配置项：watchdogMs=2000、siteSessionTtl=45min、pairCode=5min、pairToken=24h、wakeArm=30s、speed 20/40/step5、fork 75~210mm、llm timeout 3s、taskflow 超时 120s/低电 20%/恢复 80%/轮询 500ms、`safety.estop_exit_site=true`。
+- **配置**：`config/core.config.yaml` + 环境变量覆盖（`FORKAI_CORE_CONFIG`/`JARVIS_BASE_URL`/`FORKAI_PORT`/`VEHICLE_ID`）。关键配置项：watchdogMs=2000、siteSessionTtl=45min、pairCode=5min、pairToken=24h、wakeArm=30s、speed（trans 幅度）500/1000/step100、drive.control_speed=50、drive.rot=50、fork 75~210mm、llm timeout 3s、taskflow 超时 120s/低电 20%/恢复 80%/轮询 500ms、`safety.estop_exit_site=true`。
 - **实现状态**：已完成，Mock 回归。
 
 ### 3.2 鉴权依赖（`app/api/deps.py`）

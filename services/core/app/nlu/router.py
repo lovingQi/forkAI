@@ -124,8 +124,10 @@ def sanitize_slots(name: str, slots: dict, cfg: dict | None) -> dict:
         if isinstance(n, bool) or not isinstance(n, (int, float)):
             return out
         n = int(round(n))
-        hi = int((cfg.get("speed") or {}).get("max", 40))
-        out["n"] = max(5, min(hi, n))
+        sp = cfg.get("speed") or {}
+        hi = int(sp.get("max", 1000))
+        lo = int(sp.get("step", 100))
+        out["n"] = max(lo, min(hi, n))
     for key in ("start_name", "target_name", "goal"):
         v = out.get(key)
         if isinstance(v, str) and v.strip() and v != "auto":

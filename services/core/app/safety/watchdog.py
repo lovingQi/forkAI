@@ -1,5 +1,7 @@
-"""MotionWatchdog：2s 无指令自动停（1:1 对齐 watchdog.ts，asyncio.TimerHandle 实现）。
+"""MotionWatchdog：2s 无指令自动停（对齐 watchdog.ts，asyncio.TimerHandle 实现）。
 
+真车点动口径（实测）：body.speed 恒定；线速度在 trans（mm/s）；转向在 rot。
+self.speed 保存的是 trans 幅度（配置 speed.default/max/step），不是 jarvis body.speed。
 drive 后重置定时器；超时自动调 jarvis stop 并触发 on_stop（用于 broadcast watchdog_stop）。
 """
 import asyncio
@@ -7,25 +9,50 @@ import math
 
 
 class MotionWatchdog:
-    def __init__(self, jarvis, watchdog_ms: int, max_speed: int, default_speed: int, on_stop=None):
+    def __init__(
+        self,
+        jarvis,
+        watchdog_ms: int,
+        max_speed: int,
+        default_speed: int,
+        on_stop=None,
+        *,
+        step: int = 100,
+        control_speed: int = 50,
+        rot_mag: int = 50,
+    ):
         self._jarvis = jarvis
         self._watchdog_ms = watchdog_ms
         self._max_speed = max_speed
+        self._step = max(1, int(step))
+        self._control_speed = int(control_speed)
+        self._rot_mag = int(rot_mag)
         self._on_stop = on_stop
+        # trans 幅度（mm/s），语音「加速/减速」调此值
         self.speed = default_speed
         self._timer: asyncio.TimerHandle | None = None
         self._moving = False
 
+    @property
+    def control_speed(self) -> int:
+        return self._control_speed
+
+    @property
+    def rot_mag(self) -> int:
+        return self._rot_mag
+
     def set_speed(self, v) -> None:
-        # JS Math.round（半进一），速度恒为正
-        self.speed = max(5, min(self._max_speed, int(math.floor(float(v) + 0.5))))
+        # JS Math.round（半进一）；下限取 step，上限 max
+        lo = self._step
+        self.speed = max(lo, min(self._max_speed, int(math.floor(float(v) + 0.5))))
 
     def bump_speed(self, delta: int) -> None:
         self.set_speed(self.speed + delta)
 
     async def drive(self, trans: int, rot: int) -> None:
         await self._jarvis.control(
-            "drive", {"trans": trans, "rot": rot, "speed": self.speed}
+            "drive",
+            {"trans": int(trans), "rot": int(rot), "speed": self._control_speed},
         )
         self._moving = True
         self._reset_timer()

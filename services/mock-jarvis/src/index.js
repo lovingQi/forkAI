@@ -83,11 +83,8 @@ const FALLBACK_TASK_MS = 2000
 const DRIVE_TICK_MS = 50
 const HEAD_DURATION_MS = 1000
 const HEAD_TICK_MS = 50
-// 线速度 mm/s = trans * speed * DRIVE_LIN_PER_SPEED（speed=20 → ±300mm/s）
-const DRIVE_LIN_PER_SPEED = 15
-// 角速度 rad/s = rot * (DRIVE_ANG_BASE + speed/100 * DRIVE_ANG_PER_SPEED)
-const DRIVE_ANG_BASE = 0.4
-const DRIVE_ANG_PER_SPEED = 0.8
+// 真车口径：trans 即线速度 mm/s（如 500=0.5m/s）；rot±50 为转向幅度
+const DRIVE_ANG_AT_ROT50 = 0.5 // rad/s when |rot|=50
 
 function clearDriveTimer() {
   if (driveTimer) {
@@ -578,14 +575,13 @@ function handleControl(action, payload) {
   console.log(`【mock车】收到指令 action=${action} payload=${JSON.stringify(p)}`)
   switch (action) {
     case 'drive': {
-      // 真车 JWebService::Drive 不切 JRoutes mode（mode 保持 Idle），仅改速度
-      // 仿真额外：按 vel 积分 pose，便于画布演示（真车不走此积分）
+      // 真车：trans=mm/s，rot=转向幅度，speed 恒定；mode 保持 Idle
       const trans = Number(p.trans || 0)
       const rot = Number(p.rot || 0)
       state.speed = Number(p.speed || state.speed)
       state.substatus = trans > 0 ? '前进' : trans < 0 ? '后退' : rot !== 0 ? '转向' : '点动'
-      const vx = trans * state.speed * DRIVE_LIN_PER_SPEED // mm/s
-      const omega = rot * (DRIVE_ANG_BASE + (state.speed / 100) * DRIVE_ANG_PER_SPEED) // rad/s
+      const vx = trans // mm/s
+      const omega = (rot / 50) * DRIVE_ANG_AT_ROT50 // rad/s
       state.vel = [vx, 0, omega]
       if (Math.abs(vx) < 1e-6 && Math.abs(omega) < 1e-6) {
         clearDriveTimer()

@@ -32,7 +32,7 @@ def system_prompt(max_intents: int) -> str:
 
 意图名与参数：
 - MOVE_FWD 前进 / MOVE_BACK 后退 / TURN_LEFT 左转 / TURN_RIGHT 右转
-- SPEED_UP 加速 / SPEED_DOWN 减速 / SPEED_SET 设置速度，slots: {{"n": 百分比数字}}
+- SPEED_UP 加速 / SPEED_DOWN 减速 / SPEED_SET 设置点动线速度幅度（mm/s），slots: {{"n": 数字，如 500、1000}}
 - STOP 停止 / IDLE 空闲待机 / DOCK 回充充电
 - GOTO_GOAL 仅「去某地/前往某地」且没有起点时使用，slots: {{"goal": "站点名"}}
 - FORK_LIFT_UP 升起货叉 / FORK_LIFT_DOWN 放下货叉
@@ -53,7 +53,7 @@ def system_prompt(max_intents: int) -> str:
 - 只输出 JSON，不要解释
 - 意图名只能从上面的列表中选，不要发明新名字；左=LEFT，右=RIGHT
 - 无法识别、与叉车无关、或整句被否定掉（如「不要前进」）时输出 {{"intents": []}}
-- 数字单位：高度一律毫米，速度一律百分比
+- 数字单位：高度一律毫米，点动线速度幅度一律毫米每秒（trans）
 - 复合指令按最终要执行的顺序输出，最多 {n} 条；被「不/别/不要/不是/改成/还是」否定或纠正的动作不要出现
 - 同时出现起点和终点（从A到B、从A去B、从P1点去P4点）必须用 TASK_FOLLOW_BACK，不要拆成 GOTO_GOAL
 - 盲叉、盲叉取货 = TASK_FOLLOW_BACK 且 get_pallet=true（缺起止点即可）；不要收成 TASK_GET_PALLET

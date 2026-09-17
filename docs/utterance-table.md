@@ -12,7 +12,7 @@
 | stop | 已停止 | 运动 |
 | speed_up | 好的，加速 | 调速 |
 | speed_down | 好的，减速 | 调速 |
-| speed_set | 已调到百分之{n} | 调速 |
+| speed_set | 已调到{n} | 调速（trans 幅度 mm/s） |
 | idle | 好的，空闲 | 任务 |
 | dock | 好的，回充 | 任务 |
 | goto | 好的，前往{goal} | 任务 |

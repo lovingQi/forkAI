@@ -502,9 +502,9 @@ class FlowEngine:
                 await self._jarvis.control(
                     "drive",
                     {
-                        "trans": params.get("trans", 0),
+                        "trans": params.get("trans", 500),
                         "rot": params.get("rot", 0),
-                        "speed": params.get("speed", 20),
+                        "speed": params.get("speed", 50),
                     },
                 )
                 dispatched = True

@@ -1,5 +1,5 @@
 asr_model: XingChenAGI/XingChenASR-V3.2-Ultra
-tts_model: grok-voice-think-fast-2.0
+tts_model: FunAudioLLM/CosyVoice2-0.5B
 tts_voice: eve
 llm_model: deepseek-flash
 nlu_rules_enabled: false
