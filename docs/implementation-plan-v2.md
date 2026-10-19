@@ -154,6 +154,12 @@ docs/requirements-v2.md, architecture-v2.md, api-v2.md, user-manual.md, acceptan
 - [ ] 59. Week 4出口检查：验收清单全过 + 文档齐套 + 交付演示——**待真车项完成后收口**
 - [x] 60. TTS 云端增强（路线 B）：缓存 → CosyVoice2 → piper → mock；去掉提示音；启动预热
 
+### 可观测与 HUD 改版（计划外，2026-10-19 用户批准）
+
+- [x] 统一追踪模块 Tracer / trace_labels / StateObserver，GET /api/trace，trace 与 mission 事件，内存 500 条
+- [x] 语音、执行器、任务流只增加观测，不改变下发与判定
+- [x] 前端战术终端风格：主界面地图打底悬浮面板、推理日志、步骤时间线、模型面板；配对页、现场解锁、任务流编辑器统一风格
+
 ## 四、关键风险与降级预案
 
 | 风险 | 降级预案 |

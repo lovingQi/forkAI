@@ -14,12 +14,30 @@
 """
 import asyncio
 import math
+import time
 
 from ..jarvis.routes_builder import build_route
 from ..jarvis.station_names import resolve_station_fields
 from ..speak import render
+from ..trace_labels import node_step
 from ..tts.service import synthesize
 from .schema import build_units, _group_map
+
+_NODE_TO_STEP = {
+    "pending": "queued",
+    "running": "running",
+    "paused": "paused",
+    "succeeded": "done",
+    "failed": "failed",
+    "skipped": "skipped",
+}
+_FLOW_TO_MISSION = {
+    "running": "running",
+    "paused": "paused",
+    "succeeded": "succeeded",
+    "failed": "failed",
+    "cancelled": "cancelled",
+}
 
 
 def _pose_th(state: dict) -> float | None:
@@ -55,11 +73,13 @@ class _Redispatch(Exception):
 
 
 class FlowEngine:
-    def __init__(self, cfg: dict, store, jarvis, bus):
+    def __init__(self, cfg: dict, store, jarvis, bus, tracer=None):
         self._cfg = cfg
         self._store = store
         self._jarvis = jarvis
         self._bus = bus
+        self._tracer = tracer
+        self._trace_id = None
         tf = cfg.get("taskflow", {}) or {}
         self._node_timeout_s = float(tf.get("node_timeout_s", 120))
         self._low_battery_pct = float(tf.get("low_battery_pct", 20))
@@ -89,6 +109,49 @@ class FlowEngine:
             "nodeStates": dict(self._node_states),
         }
 
+    def _tr(self, cat, msg, status="info", data=None, dur_ms=None) -> None:
+        if self._tracer is None:
+            return
+        try:
+            self._tracer.emit(
+                cat, msg, status=status, data=data, dur_ms=dur_ms, trace_id=self._trace_id
+            )
+        except Exception:
+            pass
+
+    def _mission_steps(self, flow: dict) -> list:
+        nodes = flow.get("nodes") or []
+        ids = [n["id"] for n in nodes]
+        errs: list = []
+        member_of = _group_map(flow.get("parallel_groups") or [], set(ids), errs)
+        _units, adj, members, entries = build_units(ids, flow.get("edges") or [], member_of)
+        ordered: list = []
+        seen: set = set()
+        unit = sorted(entries)[0] if entries else None
+        guard = 0
+        while unit and unit not in seen and guard < 1000:
+            seen.add(unit)
+            ordered.extend(members.get(unit) or [])
+            unit = (adj.get(unit) or {}).get("success")
+            guard += 1
+        by_id = {n["id"]: n for n in nodes}
+        steps = []
+        used = set()
+        for nid in ordered:
+            if nid in by_id:
+                steps.append(node_step(by_id[nid]))
+                used.add(nid)
+        for n in nodes:
+            if n["id"] not in used:
+                steps.append(node_step(n))
+        return steps
+
+    def _node_label(self, nid) -> str:
+        node = next((n for n in (self._flow or {}).get("nodes") or [] if n.get("id") == nid), None)
+        if not node:
+            return ""
+        return node_step(node)["label"]
+
     def _emit(self, node_id=None, node_status=None) -> None:
         self._bus.broadcast(
             "flow_event",
@@ -99,10 +162,26 @@ class FlowEngine:
                 "flowStatus": self._status,
             },
         )
+        if self._tracer is not None and self._trace_id and self._status in _FLOW_TO_MISSION:
+            mapped = {
+                nid: _NODE_TO_STEP.get(st, st) for nid, st in self._node_states.items()
+            }
+            try:
+                self._tracer.mission_sync(
+                    self._trace_id, mapped, _FLOW_TO_MISSION[self._status]
+                )
+            except Exception:
+                pass
 
     def _set_flow_status(self, status: str) -> None:
         self._status = status
         self._emit()
+        if status == "succeeded":
+            self._tr("TASK", "任务流完成", "ok")
+        elif status == "failed":
+            self._tr("TASK", "任务流失败", "fail")
+        elif status == "cancelled":
+            self._tr("TASK", "任务流已取消", "warn")
         if status in ("succeeded", "failed", "cancelled"):
             self._drop_snapshot()
         else:
@@ -111,6 +190,15 @@ class FlowEngine:
     def _set_node_state(self, nid: str, state: str) -> None:
         self._node_states[nid] = state
         self._emit(nid, state)
+        label = self._node_label(nid)
+        if state == "running":
+            self._tr("TASK", f"节点 {nid} {label} 开始执行", "running")
+        elif state == "succeeded":
+            self._tr("TASK", f"节点 {nid} {label} 完成", "ok")
+        elif state == "failed":
+            self._tr("TASK", f"节点 {nid} {label} 失败", "fail")
+        elif state == "paused":
+            self._tr("TASK", f"节点 {nid} {label} 暂停", "warn")
         self._save_snapshot()
 
     # ---- 状态快照（步骤49：崩溃恢复） ----
@@ -175,6 +263,19 @@ class FlowEngine:
         self._resume_event.clear()
         self._status = "paused"
         print(f"[forkai-core] 恢复任务流快照 flow={flow.get('id')} → paused（人工 resume 继续）")
+        try:
+            if self._tracer is not None:
+                self._trace_id = self._tracer.begin("flow", flow.get("name") or "", bind=False)
+                steps = self._mission_steps(flow)
+                for step in steps:
+                    raw = self._node_states.get(step["id"])
+                    if raw:
+                        step["status"] = _NODE_TO_STEP.get(raw, "queued")
+                self._tracer.mission_begin(self._trace_id, "flow", flow.get("name") or "", steps)
+                self._tracer.mission_status(self._trace_id, "paused")
+            self._tr("TASK", "恢复任务流快照 → 暂停", "warn")
+        except Exception as e:
+            print(f"[forkai-core] trace 异常: {e}", flush=True)
         self._emit()
         # 重建执行任务：挂起在暂停门内，等人工 resume 后从当前单元重发
         self._task = asyncio.create_task(self._run(start_unit=self._current_unit))
@@ -193,6 +294,18 @@ class FlowEngine:
         self._current_node_id = None
         self._pause_flag = False
         self._resume_event.clear()
+        try:
+            if self._tracer is not None:
+                self._trace_id = self._tracer.begin("flow", flow.get("name") or "", bind=False)
+                steps = self._mission_steps(flow)
+                self._tracer.mission_begin(self._trace_id, "flow", flow.get("name") or "", steps)
+                self._tr(
+                    "PLAN",
+                    f"加载任务流「{flow.get('name') or ''}」：{len(steps)} 个节点",
+                    "ok",
+                )
+        except Exception as e:
+            print(f"[forkai-core] trace 异常: {e}", flush=True)
         self._set_flow_status("running")
         self._task = asyncio.create_task(self._run())
 
@@ -210,6 +323,7 @@ class FlowEngine:
         if self._current_node_id:
             self._set_node_state(self._current_node_id, "paused")
         self._emit()
+        self._tr("TASK", "任务流暂停", "warn")
         return True
 
     async def resume(self) -> bool:
@@ -221,6 +335,7 @@ class FlowEngine:
         self._resume_event.clear()
         self._resume_event.set()
         self._emit()
+        self._tr("TASK", "任务流继续", "ok")
         return True
 
     async def cancel(self) -> bool:
@@ -245,6 +360,8 @@ class FlowEngine:
 
     # ---- 主循环 ----
     async def _run(self, start_unit: str | None = None) -> None:
+        if self._tracer is not None and self._trace_id:
+            self._tracer.bind(self._trace_id)
         flow = self._flow
         _errs: list = []
         member_of = _group_map(flow.get("parallel_groups") or [],
@@ -353,11 +470,26 @@ class FlowEngine:
         # 节点下发重试 3 次（间隔 1s）仍失败才判 failed（步骤49 断网续跑）
         dispatched = False
         for attempt in range(3):
+            t0 = time.perf_counter()
             try:
                 await self._jarvis.start_route(route)
                 dispatched = True
+                self._tr(
+                    "ACT",
+                    f"start_route {ntype} {route_name}",
+                    "ok",
+                    {"cmd": ntype, "params": params},
+                    int((time.perf_counter() - t0) * 1000),
+                )
                 break
             except Exception as e:
+                self._tr(
+                    "ACT",
+                    f"start_route {ntype} 失败(第{attempt + 1}次)",
+                    "fail",
+                    {"cmd": ntype, "params": params},
+                    int((time.perf_counter() - t0) * 1000),
+                )
                 print(f"[forkai-core] 节点 {node['id']} 下发失败(第{attempt + 1}次): {e}")
                 if self._pause_flag:
                     raise _Paused()
@@ -417,7 +549,7 @@ class FlowEngine:
             # 低电量检查（步骤39）：先于完成判定
             battery = state.get("battery")
             if isinstance(battery, (int, float)) and battery < self._low_battery_pct:
-                await self._low_battery_pause()
+                await self._low_battery_pause(battery)
                 raise _Paused()
             verdict = self._judge_node(state, node, route_name, ctx)
             if verdict is not None:
@@ -497,19 +629,32 @@ class FlowEngine:
         """流程内定时点动：直接 control('drive') → 定时 → control('stop')，不走 watchdog。
         下发重试 3 次（步骤49 断网续跑）。"""
         dispatched = False
+        drive_body = {
+            "trans": params.get("trans", 500),
+            "rot": params.get("rot", 0),
+            "speed": params.get("speed", 50),
+        }
         for attempt in range(3):
+            t0 = time.perf_counter()
             try:
-                await self._jarvis.control(
-                    "drive",
-                    {
-                        "trans": params.get("trans", 500),
-                        "rot": params.get("rot", 0),
-                        "speed": params.get("speed", 50),
-                    },
-                )
+                await self._jarvis.control("drive", drive_body)
                 dispatched = True
+                self._tr(
+                    "ACT",
+                    "control drive",
+                    "ok",
+                    {"cmd": "drive", "params": drive_body},
+                    int((time.perf_counter() - t0) * 1000),
+                )
                 break
             except Exception:
+                self._tr(
+                    "ACT",
+                    f"control drive 失败(第{attempt + 1}次)",
+                    "fail",
+                    {"cmd": "drive", "params": drive_body},
+                    int((time.perf_counter() - t0) * 1000),
+                )
                 if self._pause_flag:
                     raise _Paused()
                 await asyncio.sleep(1)
@@ -528,7 +673,7 @@ class FlowEngine:
             pass
         return True
 
-    async def _low_battery_pause(self) -> None:
+    async def _low_battery_pause(self, battery=None) -> None:
         """低电量自动暂停 + TTS 播报 + 自动下发充电路线；充到阈值广播 flow_charge_full。"""
         self._pause_flag = True
         try:
@@ -539,6 +684,28 @@ class FlowEngine:
         if self._current_node_id:
             self._set_node_state(self._current_node_id, "paused")
         self._emit()
+        shown = battery if battery is not None else "?"
+        self._tr(
+            "GUARD",
+            f"电量 {shown}% 低于 {self._low_battery_pct:g}%，暂停任务流并自动充电",
+            "fail",
+        )
+        if self._tracer is not None and self._trace_id:
+            try:
+                self._tracer.mission_insert(
+                    self._trace_id,
+                    self._current_node_id,
+                    {
+                        "id": "auto-charge",
+                        "call": "task.charge(goal=auto)",
+                        "label": "低电量自动充电",
+                        "status": "running",
+                        "inserted": True,
+                        "note": None,
+                    },
+                )
+            except Exception:
+                pass
         # TTS 广播话术（复用 piper 合成，前端走既有 tts 事件播放）
         text = render("flow_low_battery")
         spoken = {}
@@ -576,4 +743,9 @@ class FlowEngine:
                     "flow_charge_full",
                     {"flowId": (self._flow or {}).get("id"), "battery": battery},
                 )
+                if self._tracer is not None and self._trace_id:
+                    try:
+                        self._tracer.mission_step(self._trace_id, "auto-charge", "done")
+                    except Exception:
+                        pass
                 return

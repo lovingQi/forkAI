@@ -1,0 +1,128 @@
+/* forkAI 战术终端主题。只覆盖令牌与 Element Plus 变量，不引入外部字体。 */
+:root {
+  --hud-bg: #050806;
+  --hud-bg-2: #0a0f0b;
+  --hud-panel: rgba(8, 12, 9, 0.78);
+  --hud-line: rgba(182, 255, 59, 0.22);
+  --hud-line-strong: rgba(182, 255, 59, 0.55);
+  --hud-accent: #b6ff3b;
+  --hud-text: #e8f5e1;
+  --hud-muted: #7f8f84;
+  --hud-done: #7ee787;
+  --hud-warn: #ffc53d;
+  --hud-danger: #ff4d4f;
+  --hud-info: #39c5ff;
+  --hud-skip: #4b5563;
+  --hud-mono: 'JetBrains Mono', 'Cascadia Mono', Consolas, 'SFMono-Regular', monospace;
+  --hud-sans: 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
+  --el-color-primary: #b6ff3b;
+  --el-color-primary-light-3: #c8ff6c;
+  --el-color-primary-light-5: #dbff9d;
+  --el-color-primary-light-7: #e9ffc4;
+  --el-color-primary-light-8: #f2ffda;
+  --el-color-primary-light-9: #f8ffee;
+  --el-color-primary-dark-2: #92cc2f;
+  --el-color-success: #7ee787;
+  --el-color-warning: #ffc53d;
+  --el-color-danger: #ff4d4f;
+  --el-color-info: #39c5ff;
+  --el-bg-color: #0a0f0b;
+  --el-bg-color-overlay: #101712;
+  --el-bg-color-page: #050806;
+  --el-fill-color-blank: #101712;
+  --el-text-color-primary: #e8f5e1;
+  --el-text-color-regular: #c5d4c2;
+  --el-text-color-secondary: #7f8f84;
+  --el-text-color-placeholder: #5c6b60;
+  --el-border-color: rgba(182, 255, 59, 0.28);
+  --el-border-color-light: rgba(182, 255, 59, 0.18);
+  --el-border-color-lighter: rgba(182, 255, 59, 0.12);
+  --el-mask-color: rgba(0, 0, 0, 0.62);
+}
+
+html,
+body,
+#app {
+  background: var(--hud-bg);
+  color: var(--hud-text);
+  font-family: var(--hud-sans);
+}
+
+body {
+  background-image:
+    radial-gradient(1200px 600px at 20% -10%, rgba(182, 255, 59, 0.08), transparent 55%),
+    linear-gradient(rgba(182, 255, 59, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(182, 255, 59, 0.035) 1px, transparent 1px);
+  background-size: auto, 40px 40px, 40px 40px;
+  background-color: var(--hud-bg);
+}
+
+body::before {
+  content: '';
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  opacity: 0.04;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.5) 0,
+    rgba(255, 255, 255, 0.5) 1px,
+    transparent 1px,
+    transparent 4px
+  );
+}
+
+html.dark .el-button--primary {
+  --el-button-text-color: #06100a;
+  --el-button-hover-text-color: #06100a;
+  --el-button-active-text-color: #06100a;
+  color: #06100a;
+  font-weight: 700;
+}
+
+html.dark .el-button--danger {
+  --el-button-text-color: #fff;
+  color: #fff;
+}
+
+.auth-dialog.el-dialog {
+  background: rgba(8, 12, 9, 0.94);
+  border: 1px solid var(--hud-line-strong);
+  box-shadow: 0 0 24px rgba(182, 255, 59, 0.12);
+}
+
+.auth-dialog .el-dialog__title {
+  font-family: var(--hud-mono);
+  letter-spacing: 0.04em;
+  color: var(--hud-accent);
+}
+
+.auth-dialog .el-dialog__body {
+  color: var(--hud-text);
+  font-family: var(--hud-sans);
+}
+
+.auth-dialog .auth-code {
+  font-family: var(--hud-mono);
+  font-size: 28px;
+  letter-spacing: 0.18em;
+  color: var(--hud-accent);
+}
+
+.auth-dialog .auth-hint {
+  color: var(--hud-muted);
+  font-size: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+  body::before {
+    display: none;
+  }
+}

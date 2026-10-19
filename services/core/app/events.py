@@ -22,12 +22,16 @@ class EventSock:
 class EventBus:
     def __init__(self):
         self._clients: set[EventSock] = set()
+        self._listeners: list = []
 
     def add(self, sock: EventSock) -> None:
         self._clients.add(sock)
 
     def remove(self, sock: EventSock) -> None:
         self._clients.discard(sock)
+
+    def add_listener(self, fn) -> None:
+        self._listeners.append(fn)
 
     def broadcast(self, type_: str, payload: dict) -> None:
         msg = json.dumps(
@@ -40,6 +44,11 @@ class EventBus:
             except RuntimeError:
                 # 不在事件循环内（不应发生），跳过
                 pass
+        for fn in list(self._listeners):
+            try:
+                fn(type_, payload)
+            except Exception as e:
+                print(f"[forkai-core] trace 异常: {e}", flush=True)
 
     async def _send(self, sock: EventSock, msg: str) -> None:
         try:

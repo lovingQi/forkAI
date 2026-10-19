@@ -10,6 +10,7 @@ run_utterance 遇到应中断复合指令链）。
 - ParamDialogue 统一管：TASK_* 缺参追问 → 集齐汇总确认；货叉超阈值安全确认
 """
 import math
+import time
 
 from .jarvis.routes_builder import build_fork_route, build_route
 from .jarvis.station_names import resolve_station_fields, resolve_station_name
@@ -88,12 +89,30 @@ class IntentExecutor:
         self._flow_engine = None
         # 任务流存储（main 注入）：FLOW_START 按名查找
         self._flow_store = None
+        self._tracer = None
 
     def set_flow_engine(self, engine) -> None:
         self._flow_engine = engine
 
     def set_flow_store(self, store) -> None:
         self._flow_store = store
+
+    def set_tracer(self, tracer) -> None:
+        self._tracer = tracer
+
+    def _act(self, msg: str, data: dict, t0: float, ok: bool) -> None:
+        if self._tracer is None:
+            return
+        try:
+            self._tracer.emit(
+                "ACT",
+                msg,
+                status="ok" if ok else "fail",
+                dur_ms=int((time.perf_counter() - t0) * 1000),
+                data=data,
+            )
+        except Exception:
+            pass
 
     async def handle(self, intent: dict, ctx: dict) -> dict:
         name = intent["name"]
@@ -146,11 +165,13 @@ class IntentExecutor:
             return _fail("unknown", "fail_unknown")
 
         if name == "STOP":
+            t0 = time.perf_counter()
             try:
                 await self._watchdog.stop(False)
+                self._act("control stop", {"cmd": "stop", "params": {}}, t0, True)
             except Exception:
                 # still acknowledge stop
-                pass
+                self._act("control stop", {"cmd": "stop", "params": {}}, t0, False)
             self._sessions.clear_wake_arm()
             return _ok("stop", "move")
 
@@ -245,19 +266,38 @@ class IntentExecutor:
             }
 
         if name == "IDLE":
-            await self._jarvis.control("idle")
+            t0 = time.perf_counter()
+            try:
+                await self._jarvis.control("idle")
+            except Exception:
+                self._act("control idle", {"cmd": "idle", "params": {}}, t0, False)
+                raise
+            self._act("control idle", {"cmd": "idle", "params": {}}, t0, True)
             return _ok("idle", "move")
         if name == "DOCK":
-            await self._jarvis.control("dock")
+            t0 = time.perf_counter()
+            try:
+                await self._jarvis.control("dock")
+            except Exception:
+                self._act("control dock", {"cmd": "dock", "params": {}}, t0, False)
+                raise
+            self._act("control dock", {"cmd": "dock", "params": {}}, t0, True)
             return _ok("dock", "move")
         if name == "GOTO_GOAL":
             goal = str(intent["slots"].get("goal") or "").strip()
             if not goal:
                 return _fail("goto", "fail_goto")
             goal = resolve_station_name(goal, await self._jarvis.path_point_names())
-            res = await self._jarvis.control("goto", {"target": "goal", "goal": goal})
+            t0 = time.perf_counter()
+            try:
+                res = await self._jarvis.control("goto", {"target": "goal", "goal": goal})
+            except Exception:
+                self._act("control goto", {"cmd": "goto", "params": {"goal": goal}}, t0, False)
+                raise
             if res and res.get("succeed") is False:
+                self._act("control goto", {"cmd": "goto", "params": {"goal": goal}}, t0, False)
                 return _fail("goto", "fail_goto")
+            self._act("control goto", {"cmd": "goto", "params": {"goal": goal}}, t0, True)
             return {
                 "ok": True,
                 "utterance_key": "goto",
@@ -269,10 +309,14 @@ class IntentExecutor:
         return await self._handle_query(name)
 
     async def _drive(self, trans: int, rot: int, key: str) -> dict:
+        params = {"trans": int(trans), "rot": int(rot)}
+        t0 = time.perf_counter()
         try:
             await self._watchdog.drive(trans, rot)
         except Exception as e:
+            self._act("control drive", {"cmd": "drive", "params": params}, t0, False)
             return _fail_reason(str(e) or "车端不可达")
+        self._act("control drive", {"cmd": "drive", "params": params}, t0, True)
         return _ok(key, "move")
 
     # ---- 货叉升降（步骤18-20）----
@@ -326,12 +370,31 @@ class IntentExecutor:
     async def _exec_fork(self, pos: int, key: str) -> dict:
         cfg = self._fork_cfg()
         route = build_fork_route(pos, cfg["wait"], cfg["tolerance"])
+        t0 = time.perf_counter()
         try:
             res = await self._jarvis.start_route(route)
         except Exception as e:
+            self._act(
+                f"start_route focklift pos={pos}",
+                {"cmd": "focklift", "params": {"pos": pos}},
+                t0,
+                False,
+            )
             return _fail_reason(str(e) or "车端不可达")
         if res and res.get("succeed") is False:
+            self._act(
+                f"start_route focklift pos={pos}",
+                {"cmd": "focklift", "params": {"pos": pos}},
+                t0,
+                False,
+            )
             return _fail_reason("路线下发失败")
+        self._act(
+            f"start_route focklift pos={pos}",
+            {"cmd": "focklift", "params": {"pos": pos}},
+            t0,
+            True,
+        )
         result = _ok(key, "move")
         if key == "fork_to":
             result["utterance_params"] = {"n": pos}
@@ -384,12 +447,17 @@ class IntentExecutor:
             route = build_route(schema["route_cmd"], params)
         except ValueError as e:
             return _fail_reason(str(e))
+        t0 = time.perf_counter()
+        cmd = schema["route_cmd"]
         try:
             res = await self._jarvis.start_route(route)
         except Exception as e:
+            self._act(f"start_route {cmd}", {"cmd": cmd, "params": params}, t0, False)
             return _fail_reason(str(e) or "车端不可达")
         if res and res.get("succeed") is False:
+            self._act(f"start_route {cmd}", {"cmd": cmd, "params": params}, t0, False)
             return _fail_reason("路线下发失败")
+        self._act(f"start_route {cmd}", {"cmd": cmd, "params": params}, t0, True)
         result = _ok(schema["utterance"], "move")
         result["utterance_params"] = utterance_params_for(intent_name, params)
         return result

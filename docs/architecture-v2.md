@@ -48,7 +48,10 @@
 | nlu.llm | app/nlu/llm.py | 云端 chat/completions（SiliconFlow / 官方 DeepSeek），JSON 校验；失败整句不执行 |
 | nlu.router | app/nlu/router.py | STOP 快路径；规则门限（残余/否定）决定是否交 LLM；禁止失败回落规则首命中 |
 | nlu.prompts | app/nlu/prompts.py | 闭集理解器 prompt（否定/单位/最多 N 条）+ 意图白名单 |
-| executor | app/executor.py | 意图执行：点动/货叉/任务/查询/流控 + 对话整合 + 分级锁定 |
+| executor | app/executor.py | 意图执行：点动/货叉/任务/查询/流控 + 对话整合 + 分级锁定；车端调用后记 ACT |
+| tracer | app/tracer.py | 统一追踪：ContextVar 编号、内存环形缓冲、trace/mission 广播。异常自吞，不改变主链路 |
+| trace_labels | app/trace_labels.py | 意图与任务流节点的调用式文案、中文标签 |
+| trace_observer | app/trace_observer.py | 按配置间隔读 get_state，只记模式/路线/告警/电量档/充电的变化 |
 | tasks.schemas | app/tasks/schemas.py | TASK_* 参数 schema（required/safety/default/追问话术/确认策略） |
 | tasks.dialogue | app/tasks/dialogue.py | ParamDialogue 追问/确认/取消状态机（30s 惰性超时） |
 | tasks.pending | app/tasks/pending.py | 早期挂起存储（已被 dialogue 接管，保留） |
@@ -56,6 +59,8 @@
 | taskflow.store | app/taskflow/store.py | 流程 JSON 持久化 + 中文名索引 |
 | taskflow.engine | app/taskflow/engine.py | FlowEngine 状态机/pause/resume/cancel/断网续跑/低电量/快照 |
 | taskflow.matcher | app/taskflow/matcher.py | 流程名模糊匹配（编辑距离，阈值 0.6） |
+
+追踪挂在 EventBus 监听器上：`tts`→SAY，`watchdog_stop`/`site_changed`/`flow_charge_full`→GUARD，`wake_armed`→HEAR，`flow_jarvis_lost`/`flow_jarvis_back`→LINK。`trace` 与 `mission` 自身不再入监听，避免回环。语音复合指令在执行前广播完整 mission（步骤先排队），再逐条更新；下发成功记 sent，不记 done。任务流用节点状态同步 mission，低电量自动充电作为 inserted 步骤插入。
 | safety.watchdog | app/safety/watchdog.py | 点动看门狗（默认 2s 无指令自动停） |
 | safety.alarm_monitor | app/safety/alarm_monitor.py | 急停上升沿强制退出现场锁 |
 | jarvis.client | app/jarvis/client.py | 车端 HTTP 客户端（state/map/params/control/start_route） |

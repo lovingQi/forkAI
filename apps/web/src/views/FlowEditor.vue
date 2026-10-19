@@ -59,7 +59,7 @@
           @edge-click="onEdgeClick"
           @pane-click="selectedId = ''"
         >
-          <Background pattern-color="#d1d5db" :gap="16" />
+          <Background pattern-color="rgba(182,255,59,0.15)" :gap="16" />
           <Controls />
           <template #node-task="nodeProps">
             <TaskNode v-bind="nodeProps" />
@@ -190,9 +190,9 @@ function makeEdge(source: string, target: string, on: 'success' | 'fail') {
     label: on === 'success' ? '成功' : '失败',
     animated: on === 'fail',
     style: on === 'fail'
-      ? { stroke: '#dc2626', strokeDasharray: '6 3' }
-      : { stroke: '#16a34a' },
-    labelStyle: { fill: on === 'fail' ? '#dc2626' : '#16a34a', fontSize: 11 },
+      ? { stroke: '#ff4d4f', strokeDasharray: '6 3' }
+      : { stroke: '#7ee787' },
+    labelStyle: { fill: on === 'fail' ? '#ff4d4f' : '#7ee787', fontSize: 11 },
     data: { on }
   }
 }
@@ -410,9 +410,10 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: #fff;
+  background: rgba(8, 12, 9, 0.9);
+  border: 1px solid rgba(182, 255, 59, 0.22);
   padding: 8px 12px;
-  border-radius: 8px;
+  border-radius: 0;
   flex-wrap: wrap;
 }
 .body {
@@ -423,16 +424,19 @@ onBeforeUnmount(() => {
 }
 .palette {
   width: 120px;
-  background: #fff;
-  border-radius: 8px;
+  background: rgba(8, 12, 9, 0.9);
+  border: 1px solid rgba(182, 255, 59, 0.22);
+  border-radius: 0;
   padding: 8px;
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 .palette-title {
+  font-family: Consolas, monospace;
   font-size: 12px;
-  color: #6b7280;
+  color: #b6ff3b;
+  letter-spacing: 0.08em;
   margin-bottom: 4px;
 }
 .palette-btn {
@@ -441,17 +445,32 @@ onBeforeUnmount(() => {
 .canvas {
   flex: 1;
   min-width: 0;
-  background: #fff;
-  border-radius: 8px;
+  background: #050806;
+  border: 1px solid rgba(182, 255, 59, 0.22);
+  border-radius: 0;
   overflow: hidden;
 }
 .vue-flow {
   height: 100%;
+  background: #050806;
+}
+.vue-flow :deep(.vue-flow__pane) {
+  background: #050806;
+}
+.vue-flow :deep(.vue-flow__controls) {
+  border: 1px solid rgba(182, 255, 59, 0.28);
+  box-shadow: none;
+}
+.vue-flow :deep(.vue-flow__controls-button) {
+  background: #101712;
+  border-bottom: 1px solid rgba(182, 255, 59, 0.18);
+  fill: #e8f5e1;
 }
 .side {
   width: 260px;
-  background: #fff;
-  border-radius: 8px;
+  background: rgba(8, 12, 9, 0.9);
+  border: 1px solid rgba(182, 255, 59, 0.22);
+  border-radius: 0;
   overflow-y: auto;
 }
 </style>

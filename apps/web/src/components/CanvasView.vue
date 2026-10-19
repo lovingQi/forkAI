@@ -477,9 +477,9 @@ async function onAutoDrive() {
 function drawGrid() {
   const c = cv.value!
   if (!ctx) return
-  ctx.fillStyle = '#0b1220'
+  ctx.fillStyle = '#050806'
   ctx.fillRect(0, 0, c.width, c.height)
-  ctx.strokeStyle = 'rgba(148,163,184,0.12)'
+  ctx.strokeStyle = 'rgba(182,255,59,0.07)'
   ctx.lineWidth = 1
   const stepMm = 1000
   const stepPx = stepMm * scale.value
@@ -816,7 +816,7 @@ onBeforeUnmount(() => {
   width: 100%;
   height: 100%;
   min-height: 240px;
-  background: #0b1220;
+  background: #050806;
   border-radius: 8px;
   overflow: hidden;
 }
@@ -845,14 +845,16 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 3px;
   padding: 6px 8px;
-  background: rgba(11, 18, 32, 0.7);
-  border-radius: 6px;
+  background: rgba(8, 12, 9, 0.78);
+  border: 1px solid rgba(182, 255, 59, 0.22);
+  border-radius: 0;
 }
 .legend-item {
   display: flex;
   align-items: center;
   gap: 6px;
-  color: #cbd5e1;
+  color: #e8f5e1;
+  font-family: Consolas, 'SFMono-Regular', monospace;
   font-size: 12px;
   line-height: 1;
 }
@@ -865,20 +867,20 @@ onBeforeUnmount(() => {
 .ctx-menu {
   position: absolute;
   z-index: 20;
-  background: rgba(11, 18, 32, 0.95);
-  border: 1px solid #334155;
-  border-radius: 6px;
+  background: rgba(8, 12, 9, 0.95);
+  border: 1px solid rgba(182, 255, 59, 0.45);
+  border-radius: 0;
   padding: 4px;
   min-width: 96px;
 }
 .ctx-menu-item {
   padding: 6px 10px;
-  color: #e5e7eb;
+  color: #e8f5e1;
   font-size: 13px;
   cursor: pointer;
   border-radius: 4px;
 }
 .ctx-menu-item:hover {
-  background: #1e293b;
+  background: rgba(182, 255, 59, 0.12);
 }
 </style>

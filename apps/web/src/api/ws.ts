@@ -94,8 +94,8 @@ export class RobotWs {
 export class EventWs {
   private ch: WsChannel
 
-  constructor(onMessage: MessageHandler, wsBase = config.wsBase) {
-    this.ch = new WsChannel(`${wsBase}/events`, onMessage)
+  constructor(onMessage: MessageHandler, wsBase = config.wsBase, onStatus?: StatusHandler) {
+    this.ch = new WsChannel(`${wsBase}/events`, onMessage, onStatus)
   }
 
   connect(pairToken?: string) {

@@ -103,12 +103,24 @@ class LLMClient:
 
     async def extract(self, text: str) -> list | None:
         """返回 [{"intent": str, "slots": dict}, ...]（≤max_intents）；失败/不可用返回 None。"""
+        parsed, _info = await self.extract_detailed(text)
+        return parsed
+
+    async def extract_detailed(self, text: str) -> tuple[list | None, dict]:
+        """同 extract，并返回 {model, ms, error, finish, thinking, contentPreview, reasoningPreview}。"""
         if not self.enabled:
-            return None
-        content = await self.raw_content(text)
+            return None, {"model": None, "ms": None, "error": "disabled"}
+        content, err, info = await self._chat(text)
+        info = dict(info or {})
+        info["error"] = err
         if content is None:
-            return None
-        return self._parse(content)
+            return None, info
+        parsed = self._parse(content)
+        if parsed is None:
+            info["error"] = info.get("error") or "非JSON"
+            return None, info
+        info["error"] = None
+        return parsed, info
 
     async def _chat(
         self,
@@ -118,12 +130,13 @@ class LLMClient:
         thinking: bool | None = None,
         max_tokens: int | None = None,
         allow_length_retry: bool = True,
-    ) -> tuple[str | None, str | None]:
+    ) -> tuple[str | None, str | None, dict]:
         ep = resolve_llm(self._cfg, model_id)
         if ep is None:
             self._warn_once("[forkai-core] llm 未配置 key，整句不执行")
-            return None, "未配置key"
+            return None, "未配置key", {"model": None, "error": "未配置key"}
         base_url, api_key, model = ep
+        t0 = time.perf_counter()
         use_thinking = self._thinking_enabled() if thinking is None else thinking
         tokens = max_tokens if max_tokens is not None else self._max_tokens(use_thinking)
         body: dict = {
@@ -150,16 +163,16 @@ class LLMClient:
             )
         except httpx.TimeoutException:
             self._warn_once("[forkai-core] llm 超时，整句不执行")
-            return None, "超时"
+            return None, "超时", self._llm_info(model, use_thinking, t0)
         except httpx.HTTPError as e:
             self._warn_once(f"[forkai-core] llm 不可达，整句不执行: {e}")
-            return None, "失败"
+            return None, "失败", self._llm_info(model, use_thinking, t0)
         if res.status_code == 401:
             self._warn_once("[forkai-core] llm 401，官方 key 无效")
-            return None, "key无效"
+            return None, "key无效", self._llm_info(model, use_thinking, t0)
         if not 200 <= res.status_code < 300:
             self._warn_once(f"[forkai-core] llm HTTP {res.status_code}")
-            return None, f"HTTP{res.status_code}"
+            return None, f"HTTP{res.status_code}", self._llm_info(model, use_thinking, t0)
         try:
             payload = res.json()
             choice = payload["choices"][0]
@@ -171,7 +184,7 @@ class LLMClient:
             finish = str(choice.get("finish_reason") or "")
         except (KeyError, IndexError, TypeError, ValueError) as e:
             self._warn_once(f"[forkai-core] llm 输出无法解析: {e}")
-            return None, "失败"
+            return None, "失败", self._llm_info(model, use_thinking, t0)
         print(
             f"[forkai-core] llm thinking={'on' if use_thinking else 'off'} "
             f"finish={finish or '?'} content_len={len(content)} "
@@ -192,14 +205,25 @@ class LLMClient:
                     max_tokens=bigger,
                     allow_length_retry=False,
                 )
+        info = self._llm_info(model, use_thinking, t0, finish=finish, content=content, reasoning=reasoning)
         if not str(content).strip():
-            return None, "空content"
-        return content, None
+            return None, "空content", info
+        return content, None, info
+
+    def _llm_info(self, model, thinking, t0, finish="", content="", reasoning="") -> dict:
+        return {
+            "model": model,
+            "ms": int((time.perf_counter() - t0) * 1000),
+            "finish": finish or None,
+            "thinking": bool(thinking),
+            "contentPreview": str(content or "")[:200],
+            "reasoningPreview": str(reasoning or "")[:200],
+        }
 
     async def probe_model(self, model_id: str) -> dict:
         item = catalog_item(model_id) or {"id": model_id, "name": model_id}
         t0 = time.perf_counter()
-        content, err = await self._chat("前进", model_id, thinking=False)
+        content, err, _info = await self._chat("前进", model_id, thinking=False)
         if content is None:
             return {
                 "id": model_id,
@@ -211,7 +235,7 @@ class LLMClient:
         return {"id": model_id, "name": item["name"], "latencyMs": ms, "error": None}
 
     async def raw_content(self, text: str, model_id: str | None = None) -> str | None:
-        content, _err = await self._chat(text, model_id)
+        content, _err, _info = await self._chat(text, model_id)
         return content
 
     def _warn_once(self, msg: str) -> None:

@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .api import routes_flows, routes_pair, routes_robot, routes_site, routes_voice, ws_proxy
+from .api import routes_flows, routes_pair, routes_robot, routes_site, routes_trace, routes_voice, ws_proxy
 from .api.deps import UnpairedError
 from .config import load_config
 from .events import EventBus
@@ -25,6 +25,8 @@ from .safety.watchdog import MotionWatchdog
 from .session.manager import SessionManager
 from .taskflow.engine import FlowEngine
 from .taskflow.store import FlowStore
+from .trace_observer import StateObserver
+from .tracer import Tracer
 from .asr.cloud import close_asr_client
 from .g2a import close_g2a_client
 from .tts.cloud import close_client as close_tts_cloud
@@ -58,9 +60,18 @@ executor = IntentExecutor(cfg, sessions, jarvis, watchdog)
 llm = LLMClient(cfg)
 alarm_monitor = AlarmMonitor(app)
 flow_store = FlowStore()
-flow_engine = FlowEngine(cfg, flow_store, jarvis, bus)
+_trace_cfg = cfg.get("trace") or {}
+try:
+    _trace_cap = int(_trace_cfg.get("capacity", 500))
+except (TypeError, ValueError):
+    _trace_cap = 500
+tracer = Tracer(bus, _trace_cap)
+bus.add_listener(tracer.on_bus_event)
+executor.set_tracer(tracer)
+flow_engine = FlowEngine(cfg, flow_store, jarvis, bus, tracer=tracer)
 executor.set_flow_engine(flow_engine)
 executor.set_flow_store(flow_store)
+state_observer = StateObserver(cfg, jarvis, tracer)
 
 app.state.cfg = cfg
 app.state.bus = bus
@@ -71,6 +82,7 @@ app.state.executor = executor
 app.state.llm = llm
 app.state.flow_store = flow_store
 app.state.flow_engine = flow_engine
+app.state.tracer = tracer
 attach_prewarm_state(app)
 
 
@@ -89,6 +101,7 @@ app.include_router(routes_site.router)
 app.include_router(routes_voice.router)
 app.include_router(routes_robot.router)
 app.include_router(routes_flows.router)
+app.include_router(routes_trace.router)
 app.include_router(ws_proxy.router)
 
 # 静态托管前端构建产物（对齐 index.ts express.static）
@@ -110,6 +123,7 @@ async def _startup_log():
         f"vehicle={cfg['vehicleId']} jarvis={cfg['jarvis']['baseUrl']}"
     )
     await alarm_monitor.start()
+    await state_observer.start()
     await flow_engine.restore_snapshot()
     tts_cfg = cfg.get("tts") or {}
     if tts_cfg.get("prewarm_on_startup"):
@@ -119,6 +133,7 @@ async def _startup_log():
 @app.on_event("shutdown")
 async def _shutdown():
     await stop_prewarm(app)
+    await state_observer.stop()
     await alarm_monitor.stop()
     await flow_engine.shutdown()
     await llm.close()

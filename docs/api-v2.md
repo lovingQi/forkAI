@@ -58,6 +58,7 @@
 | POST | /api/flow-engine/cancel | 取消（停车，剩余节点 skipped） |
 | GET | /api/flow-engine/status | `{"flowId","flowStatus","currentNodeId","nodeStates":{...}}`；flowStatus ∈ idle/running/paused/succeeded/failed/cancelled；nodeStates ∈ pending/running/paused/succeeded/failed/skipped |
 | GET | /api/tasks/schemas | 6 种节点参数元信息（按 route cmd 建键，见 §3） |
+| GET | /api/trace | `?limit=`（默认 300，夹在 1～缓冲容量）。`{"entries":[...],"mission":null\|{...}}`。entries 为最近追踪日志，mission 为当前任务时间线。只读内存，不落盘 |
 
 ### 1.6 mock 调试（仅 services/mock-jarvis）
 
@@ -93,6 +94,10 @@
 | flow_jarvis_lost | `{flowId,failures}` | 断网轮询失败（每 2s） |
 | flow_jarvis_back | `{flowId}` | 断网恢复（节点重发） |
 | flow_charge_full | `{flowId,battery}` | 低电量充电至恢复阈值 |
+| trace | `{id,ts,traceId,cat,msg,status,durMs,data}` | 一条推理日志。cat ∈ HEAR/NLU/PLAN/ASK/GUARD/ACT/TASK/OBS/SAY/LINK；status ∈ info/running/ok/warn/fail。data.metric 可选 `{kind,model?,engine?,ms?,ok,where}`，where ∈ cloud/local/browser |
+| mission | `{traceId,source,title,status,startedTs,endedTs,steps}` | 当前任务整包。source ∈ voice/flow；status ∈ running/waiting/paused/succeeded/failed/cancelled。steps[] = `{id,call,label,status,inserted,note}`，步骤 status ∈ queued/running/waiting/sent/done/failed/skipped/paused。任务流 running/paused 时，语音任务不覆盖它 |
+
+刷新页面或事件通道重连后，用 `GET /api/trace` 补拉。缓冲默认 500 条（`config trace.capacity`），只在内存，core 重启清空。车况差量观察默认 1 秒（`trace.observe_poll_ms`，0 为关闭）。
 
 ### 2.3 /ws/high、/ws/low
 

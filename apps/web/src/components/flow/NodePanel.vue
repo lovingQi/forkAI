@@ -96,6 +96,8 @@ function setParam(key: string, value: any) {
 .node-panel {
   padding: 8px;
   font-size: 12px;
+  color: #e8f5e1;
+  background: transparent;
 }
 .head {
   display: flex;
@@ -108,8 +110,9 @@ function setParam(key: string, value: any) {
   font-size: 14px;
 }
 .nid {
-  color: #9ca3af;
+  color: #7f8f84;
   font-size: 11px;
+  font-family: Consolas, monospace;
 }
 .req {
   color: #dc2626;
@@ -119,7 +122,7 @@ function setParam(key: string, value: any) {
   margin-left: 6px;
 }
 .ask {
-  color: #9ca3af;
+  color: #7f8f84;
   font-size: 11px;
   margin-top: 2px;
 }

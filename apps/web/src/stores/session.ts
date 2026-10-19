@@ -13,6 +13,7 @@ import {
   voiceText
 } from '@/api/http'
 import { EventWs } from '@/api/ws'
+import { useTraceStore } from '@/stores/trace'
 
 function ttsEngineLabel(engine: string, hasAudio: boolean): string {
   if (!hasAudio || engine === 'mock') return '浏览器朗读'
@@ -118,7 +119,13 @@ export const useSessionStore = defineStore('session', {
 
     connectEvents() {
       if (eventWs) return
-      eventWs = new EventWs((msg) => this.onEvent(msg))
+      eventWs = new EventWs(
+        (msg) => this.onEvent(msg),
+        undefined,
+        (connected) => {
+          if (connected) void useTraceStore().loadHistory()
+        }
+      )
       eventWs.connect(getPairToken())
     },
 
@@ -172,6 +179,12 @@ export const useSessionStore = defineStore('session', {
         setTimeout(() => {
           this.wakeArmed = false
         }, 12000)
+      }
+      if (msg.type === 'trace') {
+        useTraceStore().onTrace(msg.payload)
+      }
+      if (msg.type === 'mission') {
+        useTraceStore().onMission(msg.payload)
       }
       if (msg.type === 'flow_event') {
         const p = msg.payload || {}

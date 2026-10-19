@@ -109,3 +109,7 @@ taskflow:
 # 安全：急停上升沿强制退出现场锁
 safety:
   estop_exit_site: true
+# 可观测：推理日志环形缓冲 + 车况变化观察（0=关闭观察轮询）
+trace:
+  capacity: 500
+  observe_poll_ms: 1000

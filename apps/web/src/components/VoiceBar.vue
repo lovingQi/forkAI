@@ -5,7 +5,10 @@
         {{ session.iAmHolder ? '现场点动已解锁' : '未持有点动权' }}
       </el-tag>
       <el-tag v-if="session.wakeArmed" type="warning" size="small">唤醒武装中</el-tag>
-      <span class="sub">按住空格说话，松开结束；速度指令走启停式；看门狗默认 2s</span>
+      <div class="utter">
+        <span>{{ session.lastUtterance || '等待指令…' }}</span>
+        <span v-if="session.lastTtsEngine" class="tts-engine">{{ session.lastTtsEngine }}</span>
+      </div>
     </div>
 
     <div class="row actions">
@@ -20,114 +23,43 @@
       >
         {{ pttDown ? '松开结束' : '按住说话 (空格)' }}
       </el-button>
-      <el-select
-        v-model="asrModel"
-        class="model-select"
-        placeholder="ASR"
-        @visible-change="onAsrVisible"
-        @change="onAsrChange"
-      >
-        <el-option
-          v-for="it in asrItems"
-          :key="it.id"
-          :label="optionLabel(it)"
-          :value="it.id"
-        />
-      </el-select>
-      <el-select
-        v-model="ttsModel"
-        class="model-select"
-        placeholder="TTS"
-        @change="onTtsChange"
-      >
-        <el-option
-          v-for="it in ttsItems"
-          :key="it.id"
-          :label="optionLabel(it)"
-          :value="it.id"
-        />
-      </el-select>
-      <el-select
-        v-model="ttsVoice"
-        class="voice-select"
-        placeholder="音色"
-        filterable
-        @change="onTtsVoiceChange"
-      >
-        <el-option
-          v-for="it in ttsVoiceItems"
-          :key="it.id"
-          :label="it.name"
-          :value="it.id"
-        />
-      </el-select>
-      <el-select
-        v-model="llmModel"
-        class="model-select"
-        placeholder="LLM"
-        @visible-change="onLlmVisible"
-        @change="onLlmChange"
-      >
-        <el-option
-          v-for="it in llmItems"
-          :key="it.id"
-          :label="optionLabel(it)"
-          :value="it.id"
-        />
-      </el-select>
-      <el-switch
-        v-model="nluRulesEnabled"
-        size="small"
-        inline-prompt
-        active-text="规则"
-        inactive-text="全LLM"
-        @change="onNluRulesChange"
-      />
-      <el-switch
-        v-model="llmThinkingEnabled"
-        size="small"
-        inline-prompt
-        active-text="思考"
-        inactive-text="直出"
-        @change="onThinkingChange"
-      />
-      <span class="sub">最多</span>
-      <el-input-number
-        v-model="nluMaxIntents"
-        :min="1"
-        :max="8"
-        size="small"
-        controls-position="right"
-        class="max-intents"
-        @change="onMaxIntentsChange"
-      />
       <el-button type="danger" @click="onStop">停</el-button>
       <el-button @click="showText = !showText">文本调试</el-button>
-      <el-button :loading="cacheBusy" @click="onClearCache">清缓存</el-button>
-      <el-button type="success" :loading="prewarming" @click="onPrewarm">预热</el-button>
-      <span class="sub">{{ cacheHint }}</span>
+      <el-popover placement="top" :width="420" trigger="click">
+        <template #reference>
+          <el-button>模型设置</el-button>
+        </template>
+        <div class="model-pop">
+          <el-select v-model="asrModel" class="model-select" placeholder="ASR" @visible-change="onAsrVisible" @change="onAsrChange">
+            <el-option v-for="it in asrItems" :key="it.id" :label="optionLabel(it)" :value="it.id" />
+          </el-select>
+          <el-select v-model="ttsModel" class="model-select" placeholder="TTS" @change="onTtsChange">
+            <el-option v-for="it in ttsItems" :key="it.id" :label="optionLabel(it)" :value="it.id" />
+          </el-select>
+          <el-select v-model="ttsVoice" class="voice-select" placeholder="音色" filterable @change="onTtsVoiceChange">
+            <el-option v-for="it in ttsVoiceItems" :key="it.id" :label="it.name" :value="it.id" />
+          </el-select>
+          <el-select v-model="llmModel" class="model-select" placeholder="LLM" @visible-change="onLlmVisible" @change="onLlmChange">
+            <el-option v-for="it in llmItems" :key="it.id" :label="optionLabel(it)" :value="it.id" />
+          </el-select>
+          <el-switch v-model="nluRulesEnabled" size="small" inline-prompt active-text="规则" inactive-text="全LLM" @change="onNluRulesChange" />
+          <el-switch v-model="llmThinkingEnabled" size="small" inline-prompt active-text="思考" inactive-text="直出" @change="onThinkingChange" />
+          <span class="sub">最多</span>
+          <el-input-number v-model="nluMaxIntents" :min="1" :max="8" size="small" controls-position="right" class="max-intents" @change="onMaxIntentsChange" />
+          <el-button :loading="cacheBusy" @click="onClearCache">清缓存</el-button>
+          <el-button type="success" :loading="prewarming" @click="onPrewarm">预热</el-button>
+          <span class="sub">{{ cacheHint }}</span>
+        </div>
+      </el-popover>
     </div>
 
     <div v-if="showText" class="row">
-      <el-input
-        v-model="debugText"
-        :placeholder="textPlaceholder"
-        @keyup.enter="sendDebug"
-      />
+      <el-input v-model="debugText" :placeholder="textPlaceholder" @keyup.enter="sendDebug" />
       <el-button type="primary" @click="sendDebug">发送</el-button>
     </div>
 
-    <div v-if="pttDown" class="partial">
-      {{ partialText || '聆听中…' }}
-    </div>
+    <div v-if="pttDown" class="partial">{{ partialText || '聆听中…' }}</div>
     <div v-else-if="recognizing" class="partial">识别中…</div>
-    <div class="utter">
-      <span>{{ session.lastUtterance || '等待指令…' }}</span>
-      <span v-if="session.lastTtsEngine" class="tts-engine">{{ session.lastTtsEngine }}</span>
-    </div>
-    <div class="logs">
-      <div v-for="(l, i) in session.logs.slice(0, 8)" :key="i">{{ l }}</div>
-    </div>
   </div>
 </template>
 
@@ -199,6 +131,10 @@ let pttStreaming = false
 let pttReady = false
 let pttFinishing = false
 const pttPrebuf: ArrayBuffer[] = []
+
+function notifyProviders() {
+  window.dispatchEvent(new Event('forkai-providers-changed'))
+}
 
 function optionLabel(it: VoiceProviderItem) {
   if (it.latencyMs != null) return `${it.name}（${it.latencyMs}ms）`
@@ -299,6 +235,7 @@ async function onAsrChange(id: string) {
   if (ignoreChange || !id) return
   try {
     await setVoiceProviders({ asrModel: id })
+    notifyProviders()
   } catch (e: any) {
     ElMessage.error(e?.message || '保存 ASR 失败')
   }
@@ -309,6 +246,7 @@ async function onTtsChange(id: string) {
   try {
     const res = await setVoiceProviders({ ttsModel: id })
     if (res.ttsVoice) ttsVoice.value = res.ttsVoice
+    notifyProviders()
     await loadProviders(false)
   } catch (e: any) {
     ElMessage.error(e?.message || '保存 TTS 失败')
@@ -319,6 +257,7 @@ async function onTtsVoiceChange(id: string) {
   if (ignoreChange || !id) return
   try {
     await setVoiceProviders({ ttsVoice: id })
+    notifyProviders()
   } catch (e: any) {
     ElMessage.error(e?.message || '保存音色失败')
   }
@@ -328,6 +267,7 @@ async function onLlmChange(id: string) {
   if (ignoreChange || !id) return
   try {
     await setVoiceProviders({ llmModel: id })
+    notifyProviders()
   } catch (e: any) {
     ElMessage.error(e?.message || '保存 LLM 失败')
   }
@@ -337,6 +277,7 @@ async function onNluRulesChange(on: boolean | string | number) {
   if (ignoreChange) return
   try {
     await setVoiceProviders({ nluRulesEnabled: Boolean(on) })
+    notifyProviders()
   } catch (e: any) {
     ElMessage.error(e?.message || '保存规则快路径失败')
   }
@@ -346,6 +287,7 @@ async function onThinkingChange(on: boolean | string | number) {
   if (ignoreChange) return
   try {
     await setVoiceProviders({ llmThinkingEnabled: Boolean(on) })
+    notifyProviders()
   } catch (e: any) {
     ElMessage.error(e?.message || '保存思考模式失败')
   }
@@ -355,6 +297,7 @@ async function onMaxIntentsChange(n: number | undefined) {
   if (ignoreChange || n == null) return
   try {
     await setVoiceProviders({ nluMaxIntents: n })
+    notifyProviders()
   } catch (e: any) {
     ElMessage.error(e?.message || '保存意图条数失败')
   }
@@ -658,57 +601,24 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.voice-bar {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.actions .holding {
-  background: #2563eb;
-}
-.model-select {
-  width: 220px;
-}
-.voice-select {
-  width: 140px;
-}
-.max-intents {
-  width: 110px;
-}
-.sub {
-  color: #6b7280;
-  font-size: 12px;
-}
-.partial {
-  font-size: 14px;
-  color: #2563eb;
-  min-height: 20px;
-}
+.voice-bar { display: flex; flex-direction: column; gap: 8px; height: 100%; }
+.row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.actions .holding { box-shadow: 0 0 12px rgba(182, 255, 59, 0.45); }
+.model-pop { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.model-select { width: 180px; }
+.voice-select { width: 120px; }
+.max-intents { width: 110px; }
+.sub { color: var(--hud-muted); font-size: 12px; }
+.partial { font-size: 14px; color: var(--hud-info); min-height: 20px; font-family: var(--hud-mono); }
 .utter {
   font-size: 16px;
   font-weight: 600;
-  color: #111827;
+  color: var(--hud-text);
   min-height: 24px;
   display: flex;
   align-items: baseline;
   gap: 8px;
   flex-wrap: wrap;
 }
-.tts-engine {
-  font-size: 12px;
-  font-weight: 500;
-  color: #6b7280;
-}
-.logs {
-  font-size: 12px;
-  color: #6b7280;
-  max-height: 120px;
-  overflow: auto;
-}
+.tts-engine { font-size: 12px; font-weight: 500; color: var(--hud-muted); }
 </style>

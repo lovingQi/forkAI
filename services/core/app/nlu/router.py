@@ -11,6 +11,7 @@ parse_intent(text, llm, cfg) -> list[dict]：
 - LLM 超时/挂掉/非 JSON → [{"name": "LLM_FAIL", ...}]，整句不执行
 """
 import re
+import time
 
 from ..jarvis.station_names import resolve_station_name
 from .llm import LLMClient
@@ -144,19 +145,58 @@ def _log(via: str, text: str, names: list[str]) -> None:
     print(f"[forkai-core] nlu via={via} text={preview!r} intents={names}", flush=True)
 
 
-async def parse_intent(text: str, llm: LLMClient | None, cfg: dict | None = None) -> list:
+def _fill_meta(meta: dict | None, **fields) -> None:
+    if meta is None:
+        return
+    meta.clear()
+    meta.update(fields)
+
+
+async def parse_intent(
+    text: str,
+    llm: LLMClient | None,
+    cfg: dict | None = None,
+    meta: dict | None = None,
+    on_llm_start=None,
+) -> list:
     cfg = cfg if cfg is not None else (getattr(llm, "_cfg", None) if llm is not None else {})
     via, intents = rule_route(text, cfg)
     if via == "rule":
+        _fill_meta(meta, via="rule", model=None, ms=None, error=None)
         _log("rule", text, [i["name"] for i in intents])
         return intents
 
     if llm is None:
+        _fill_meta(meta, via="llm_fail", model=None, ms=None, error="no_llm")
         _log("llm_fail", text, [LLM_FAIL])
         return _fail(text)
 
-    extracted = await llm.extract(text)
+    if on_llm_start is not None:
+        try:
+            on_llm_start()
+        except Exception:
+            pass
+
+    t0 = time.perf_counter()
+    info: dict = {}
+    if meta is not None and hasattr(llm, "extract_detailed"):
+        extracted, info = await llm.extract_detailed(text)
+    else:
+        extracted = await llm.extract(text)
+    elapsed = int((time.perf_counter() - t0) * 1000)
+    info = info or {}
     if extracted is None:
+        _fill_meta(
+            meta,
+            via="llm_fail",
+            model=info.get("model"),
+            ms=info.get("ms", elapsed),
+            error=info.get("error") or "失败",
+            finish=info.get("finish"),
+            thinking=info.get("thinking"),
+            contentPreview=info.get("contentPreview"),
+            reasoningPreview=info.get("reasoningPreview"),
+        )
         _log("llm_fail", text, [LLM_FAIL])
         return _fail(text)
 
@@ -177,8 +217,18 @@ async def parse_intent(text: str, llm: LLMClient | None, cfg: dict | None = None
         if len(valid) >= max_n:
             break
 
+    common = {
+        "model": info.get("model"),
+        "ms": info.get("ms", elapsed),
+        "finish": info.get("finish"),
+        "thinking": info.get("thinking"),
+        "contentPreview": info.get("contentPreview"),
+        "reasoningPreview": info.get("reasoningPreview"),
+    }
     if not valid:
+        _fill_meta(meta, via="llm_empty", error=None, **common)
         _log("llm_empty", text, [])
         return []
+    _fill_meta(meta, via="llm", error=None, **common)
     _log("llm", text, [i["name"] for i in valid])
     return valid

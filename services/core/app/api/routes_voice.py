@@ -8,6 +8,7 @@ cabin 通道先匹配唤醒词 → arm_wake + TTS wake_ack(target=vehicle) + bro
 import asyncio
 import json
 import re
+import time
 
 from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
@@ -26,6 +27,7 @@ from ..asr.pcm_wav import pcm16_stats, pcm16_to_wav
 from ..config import now_ms, save_runtime_models
 from ..nlu.llm import LLM_CATALOG, LLM_CATALOG_IDS, current_llm_model
 from ..nlu.router import LLM_FAIL, clamp_max_intents, parse_intent
+from ..trace_labels import SENT_INTENTS, fmt_intents, intent_step
 from ..nlu.rules import correct_asr, match_wake_word, wake_word_pattern
 from ..speak import render, resolve_target
 from ..g2a import G2A_TTS_VOICES, is_g2a_tts
@@ -90,16 +92,112 @@ def coalesce_drive_intents(intents: list) -> list:
     return out
 
 
-async def run_utterance(request: Request, client_id: str, channel: str, text: str) -> dict:
+def _emit_nlu(tracer, trace_id, meta, intent_list, cfg) -> None:
+    via = (meta or {}).get("via")
+    ms = (meta or {}).get("ms")
+    model = (meta or {}).get("model") or current_llm_model(cfg)
+    preview = {
+        "contentPreview": (meta or {}).get("contentPreview"),
+        "reasoningPreview": (meta or {}).get("reasoningPreview"),
+    }
+    shown = [i for i in (intent_list or []) if i.get("name") != LLM_FAIL]
+    if via == "rule":
+        _emit(
+            tracer,
+            "NLU",
+            f"规则快路径：{fmt_intents(shown)}",
+            status="ok",
+            dur_ms=ms,
+            trace_id=trace_id,
+            data={"metric": {"kind": "rules", "where": "local", "ok": True, "ms": ms}},
+        )
+    elif via == "llm":
+        _emit(
+            tracer,
+            "NLU",
+            f"LLM {model} 理解为：{fmt_intents(shown)}",
+            status="ok",
+            dur_ms=ms,
+            trace_id=trace_id,
+            data={
+                "metric": {"kind": "llm", "model": model, "where": "cloud", "ok": True, "ms": ms},
+                **preview,
+            },
+        )
+    elif via == "llm_empty":
+        _emit(
+            tracer,
+            "NLU",
+            "LLM 判定无可执行指令（静默）",
+            status="warn",
+            dur_ms=ms,
+            trace_id=trace_id,
+            data={
+                "metric": {"kind": "llm", "model": model, "where": "cloud", "ok": False, "ms": ms},
+                **preview,
+            },
+        )
+    elif via == "llm_fail":
+        err = (meta or {}).get("error") or "失败"
+        _emit(
+            tracer,
+            "NLU",
+            f"LLM 失败（{err}）· 整句不执行",
+            status="fail",
+            dur_ms=ms,
+            trace_id=trace_id,
+            data={
+                "metric": {"kind": "llm", "model": model, "where": "cloud", "ok": False, "ms": ms},
+                **preview,
+            },
+        )
+
+
+def _tracer_of(obj):
+    app = getattr(obj, "app", None)
+    if app is None:
+        return None
+    return getattr(app.state, "tracer", None)
+
+
+def _emit(tracer, *args, **kwargs) -> None:
+    if tracer is None:
+        return
+    try:
+        tracer.emit(*args, **kwargs)
+    except Exception:
+        pass
+
+
+def _mission(tracer, name, *args, **kwargs) -> None:
+    if tracer is None:
+        return
+    try:
+        getattr(tracer, name)(*args, **kwargs)
+    except Exception:
+        pass
+
+
+async def run_utterance(
+    request: Request, client_id: str, channel: str, text: str, trace_id: str | None = None
+) -> dict:
     cfg = request.app.state.cfg
     sessions = request.app.state.sessions
     bus = request.app.state.bus
     executor = request.app.state.executor
+    tracer = _tracer_of(request)
+    if tracer is not None:
+        if trace_id:
+            tracer.bind(trace_id)
+        else:
+            trace_id = tracer.begin("utterance", text)
+            _emit(tracer, "HEAR", f"文本输入：{text}（{channel}）", status="ok", trace_id=trace_id)
 
     wake_ok = False
     if channel == "cabin" and match_wake_word(text, cfg["wakeWords"]):
         sessions.arm_wake(client_id)
         wake_ok = True
+        _emit(tracer, "HEAR", "唤醒词：玖物玖物", status="ok", trace_id=trace_id)
         wake_text = render("wake_ack")
         spoken = await synthesize(wake_text, "wake", cfg)
         bus.broadcast(
@@ -126,6 +224,7 @@ async def run_utterance(request: Request, client_id: str, channel: str, text: st
         # 混合指令剥离唤醒词后继续解析
         stripped = _strip_wake_words(text, cfg["wakeWords"]).strip()
         if not stripped:
+            _emit(tracer, "HEAR", "唤醒词：玖物玖物", status="ok", trace_id=trace_id)
             wake_text = render("wake_ack")
             spoken = await synthesize(wake_text, "wake", cfg)
             bus.broadcast(
@@ -143,8 +242,30 @@ async def run_utterance(request: Request, client_id: str, channel: str, text: st
         text = stripped
 
     corrected = correct_asr(text)
-    intent_list = await parse_intent(corrected, getattr(request.app.state, "llm", None), cfg)
+    if corrected != text:
+        _emit(tracer, "NLU", f"纠偏：{text} → {corrected}", status="info", trace_id=trace_id)
+    nlu_meta: dict = {}
+
+    def _on_llm_start() -> None:
+        model = current_llm_model(cfg)
+        _emit(
+            tracer,
+            "NLU",
+            f"调用 LLM {model} 理解",
+            status="running",
+            trace_id=trace_id,
+            data={"metric": {"kind": "llm", "model": model, "where": "cloud", "ok": False}},
+        )
+
+    intent_list = await parse_intent(
+        corrected,
+        getattr(request.app.state, "llm", None),
+        cfg,
+        nlu_meta,
+        _on_llm_start,
+    )
     intent_list = coalesce_drive_intents(intent_list)
+    _emit_nlu(tracer, trace_id, nlu_meta, intent_list, cfg)
     ctx = {"client_id": client_id, "channel": channel, "wake_ok": wake_ok, "text": corrected}
 
     if not intent_list:
@@ -198,10 +319,16 @@ async def run_utterance(request: Request, client_id: str, channel: str, text: st
 
     wire_intents = [_wire_intent(i) for i in intent_list]
     out: dict | None = None
+    steps = [intent_step(it, i) for i, it in enumerate(intent_list)]
+    _mission(tracer, "mission_begin", trace_id, "voice", corrected, steps)
+    calls = " → ".join(s["call"] for s in steps)
+    _emit(tracer, "PLAN", f"拆解为 {len(steps)} 步：{calls}", status="ok", trace_id=trace_id)
     # 复合指令：按顺序逐个执行，任一失败即中断并播报该失败；
     # 遇到 awaiting（追问/待确认挂起）也中断，等用户下一轮应答；
     # 每个意图的 TTS 话术依次广播（保持原 broadcast 节奏）
-    for intent in intent_list:
+    finished = True
+    for idx, intent in enumerate(intent_list):
+        _mission(tracer, "mission_step", trace_id, f"s{idx}", "running")
         result = await executor.handle(intent, ctx)
         # speak_text 为动态话术（参数追问等，不进 utterances 模板）
         utterance = result.get("speak_text") or render(
@@ -244,8 +371,37 @@ async def run_utterance(request: Request, client_id: str, channel: str, text: st
             del out["errorCode"]
         if out["audioBase64"] is None:
             del out["audioBase64"]
-        if not result["ok"] or result.get("awaiting"):
+        utterance_text = utterance or ""
+        if result.get("awaiting"):
+            finished = False
+            _mission(tracer, "mission_step", trace_id, f"s{idx}", "waiting", utterance_text)
+            _emit(tracer, "ASK", utterance_text or "等待确认", status="warn", trace_id=trace_id)
+            for j in range(idx + 1, len(intent_list)):
+                _mission(tracer, "mission_step", trace_id, f"s{j}", "skipped")
+            _mission(tracer, "mission_status", trace_id, "waiting")
             break
+        if not result["ok"]:
+            finished = False
+            _mission(tracer, "mission_step", trace_id, f"s{idx}", "failed", utterance_text)
+            code = result.get("error_code")
+            if code == "no_site":
+                _emit(tracer, "GUARD", "未持有现场锁，拒绝运动指令", status="fail", trace_id=trace_id)
+            elif code == "flow_running":
+                _emit(tracer, "GUARD", "任务流执行中，拒绝运动指令", status="fail", trace_id=trace_id)
+            elif code == "not_armed":
+                _emit(tracer, "GUARD", "未唤醒，拒绝运动指令", status="fail", trace_id=trace_id)
+            elif code == "timeout":
+                _emit(tracer, "GUARD", "等待应答超时，已放弃", status="fail", trace_id=trace_id)
+            else:
+                _emit(tracer, "TASK", f"执行失败：{utterance_text}", status="fail", trace_id=trace_id)
+            for j in range(idx + 1, len(intent_list)):
+                _mission(tracer, "mission_step", trace_id, f"s{j}", "skipped")
+            _mission(tracer, "mission_status", trace_id, "failed")
+            break
+        step_status = "sent" if intent["name"] in SENT_INTENTS else "done"
+        _mission(tracer, "mission_step", trace_id, f"s{idx}", step_status)
+    if finished:
+        _mission(tracer, "mission_status", trace_id, "succeeded")
     if out is None:
         out = {"succeed": False, "intent": {"name": "UNKNOWN", "slots": {}, "rawText": text}}
     # 连续对话 30s 免唤醒（步骤33）：cabin 通道成功处理非纯唤醒意图后滚动续期
@@ -505,7 +661,7 @@ async def ws_audio(ws: WebSocket):
             del out["audioBase64"]
         return out
 
-    async def run_final(text: str) -> None:
+    async def run_final(text: str, trace_id: str | None) -> None:
         text = text.strip()
         if not text:
             await skip_empty_asr("empty_transcription")
@@ -513,7 +669,7 @@ async def ws_audio(ws: WebSocket):
         bus.broadcast(
             "asr_final", {"clientId": client_id, "channel": channel, "text": text}
         )
-        out = await run_utterance(ws, client_id, channel, text)
+        out = await run_utterance(ws, client_id, channel, text, trace_id)
         await _ws_send_json(ws, {"type": "final", "text": text, **out})
 
     try:
@@ -539,6 +695,17 @@ async def ws_audio(ws: WebSocket):
             pcm_buf.clear()
             stats = pcm16_stats(pcm, sr)
             model = current_asr_model(cfg)
+            tr = _tracer_of(ws)
+            tid = tr.begin("utterance", "语音输入") if tr is not None else None
+            t_asr = time.perf_counter()
+            _emit(
+                tr,
+                "HEAR",
+                f"提交识别 {stats['ms']}ms 音频（{model}）",
+                status="running",
+                trace_id=tid,
+                data={"metric": {"kind": "asr", "model": model, "where": "cloud", "ok": False}},
+            )
             print(
                 f"[forkai-core] ASR submit model={model} pcm_ms={stats['ms']} "
                 f"pcm_bytes={stats['bytes']} peak={stats['peak']}",
@@ -546,10 +713,21 @@ async def ws_audio(ws: WebSocket):
             )
             wav = pcm16_to_wav(pcm, sr)
             if stats["bytes"] == 0:
+                _emit(tr, "HEAR", "识别结果为空", status="warn", trace_id=tid,
+                      dur_ms=int((time.perf_counter() - t_asr) * 1000))
                 await skip_empty_asr("empty_audio")
                 continue
             if not cloud_asr_enabled(cfg):
                 print("[forkai-core] ASR fail reason=disabled_or_no_key", flush=True)
+                _emit(
+                    tr,
+                    "HEAR",
+                    "识别失败：disabled_or_no_key",
+                    status="fail",
+                    trace_id=tid,
+                    dur_ms=int((time.perf_counter() - t_asr) * 1000),
+                    data={"metric": {"kind": "asr", "model": model, "where": "cloud", "ok": False}},
+                )
                 out = await speak_asr_fail()
                 await _ws_send_json(ws, {"type": "final", "text": "", **out})
                 continue
@@ -558,6 +736,8 @@ async def ws_audio(ws: WebSocket):
             except ASRError as e:
                 reason = str(e)
                 if reason in ("empty_audio", "empty_transcription"):
+                    _emit(tr, "HEAR", "识别结果为空", status="warn", trace_id=tid,
+                          dur_ms=int((time.perf_counter() - t_asr) * 1000))
                     await skip_empty_asr(reason)
                     continue
                 print(
@@ -565,10 +745,33 @@ async def ws_audio(ws: WebSocket):
                     f"pcm_ms={stats['ms']} peak={stats['peak']}",
                     flush=True,
                 )
+                _emit(
+                    tr,
+                    "HEAR",
+                    f"识别失败：{reason}",
+                    status="fail",
+                    trace_id=tid,
+                    dur_ms=int((time.perf_counter() - t_asr) * 1000),
+                    data={"metric": {"kind": "asr", "model": model, "where": "cloud", "ok": False}},
+                )
                 out = await speak_asr_fail()
                 await _ws_send_json(ws, {"type": "final", "text": "", **out})
                 continue
-            await run_final(text)
+            heard = (text or "").strip()
+            asr_ms = int((time.perf_counter() - t_asr) * 1000)
+            if not heard:
+                _emit(tr, "HEAR", "识别结果为空", status="warn", trace_id=tid, dur_ms=asr_ms)
+            else:
+                _emit(
+                    tr,
+                    "HEAR",
+                    f"识别：{heard}",
+                    status="ok",
+                    trace_id=tid,
+                    dur_ms=asr_ms,
+                    data={"metric": {"kind": "asr", "model": model, "where": "cloud", "ok": True, "ms": asr_ms}},
+                )
+            await run_final(text, tid)
     except WebSocketDisconnect:
         pass
     except RuntimeError:
