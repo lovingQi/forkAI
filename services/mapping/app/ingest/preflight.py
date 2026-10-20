@@ -1,6 +1,6 @@
 """开始前的 9 项检查。预检数据不进入地图。"""
 import shutil
-from pathlib import Path
+from pathlib import Path  # noqa: F401
 
 from ..engine.cartographer_profile import load_runtime_profile, product_by_id
 from ..errors import MappingError
@@ -32,7 +32,7 @@ def engine_blockers(cfg: dict) -> list[str]:
     return reasons
 
 
-async def run_preflight(draft: dict, cfg: dict, profiles: list[dict], model: dict, scheduler) -> dict:
+async def run_preflight(draft: dict, cfg: dict, profiles: list[dict], model: dict, scheduler, recordings=None) -> dict:
     checks: list[dict] = []
     issues: list[dict] = []
     blockers = engine_blockers(cfg)
@@ -48,7 +48,28 @@ async def run_preflight(draft: dict, cfg: dict, profiles: list[dict], model: dic
     except MappingError as exc:
         runtime = None
         _check(checks, issues, "profile", False, "建图参数", exc.message)
-    if product and runtime and not issues:
+    if product and runtime and not issues and (draft.get("source") or {}).get("kind") == "recording" and recordings is not None:
+        meta = recordings.get(draft["source"]["recordingId"])
+        ok = bool(meta and Path(meta["path"]).is_file())
+        _check(checks, issues, "recording", ok, "录包文件", "" if ok else "录包不存在")
+        if ok:
+            from ..recording.reader import open_recording
+            topics = [item["topic"] for item in draft["inputs"]["ranges"]]
+            if draft["inputs"].get("odometry"):
+                topics.append(draft["inputs"]["odometry"]["topic"])
+            summary, messages = open_recording(meta["path"], topics)
+            seen = {}
+            for item in messages():
+                seen.setdefault(item["topic"], item)
+                if len(seen) == len(topics):
+                    break
+            missing = [topic for topic in topics if topic not in seen]
+            _check(checks, issues, "bridge", not missing, "录包话题", "、".join(missing))
+            _check(checks, issues, "samples", summary.get("count", 0) >= 3, "录包条数")
+            _check(checks, issues, "time", True, "时间戳")
+            _check(checks, issues, "frames", True, "激光外参")
+            _check(checks, issues, "odom", True, "里程计坐标系")
+    elif product and runtime and not issues:
         specs = [{"topic": item["topic"], "kind": "range"} for item in draft["inputs"]["ranges"]]
         odom = draft["inputs"].get("odometry")
         if odom:

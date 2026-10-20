@@ -32,7 +32,7 @@ import MappingReadinessPanel from '@/components/mapping/MappingReadinessPanel.vu
 import { mappingRobot, validateDraft } from '@/api/mapping'
 import { useSessionStore } from '@/stores/session'
 
-const props = defineProps<{ profiles: any[] }>()
+const props = defineProps<{ profiles: any[]; mode?: string }>()
 const emit = defineEmits<{ back: []; start: [draft: Record<string, unknown>] }>()
 const session = useSessionStore()
 const profileId = ref(props.profiles[0]?.id || 'dual-range-odom-2d')
@@ -58,8 +58,12 @@ watch(profile, (item) => {
 function draft() {
   return {
     dimension: '2d',
-    mode: 'online',
+    mode: props.mode === 'offline' ? 'offline' : 'online',
     name: name.value.trim(),
+    source: props.mode === 'offline' ? { kind: 'recording', recordingId: name.value.trim() } : { kind: 'online' },
+    objective: props.mode === 'extend' || props.mode === 'patch'
+      ? { kind: props.mode === 'patch' ? 'update-region' : 'extend', baseProjectId: '', initialPose: { xMm: 0, yMm: 0, yawRad: 0 } }
+      : { kind: 'create' },
     profileId: profileId.value,
     inputs: { ranges: ranges.value, odometry: odometry.value }
   }

@@ -112,7 +112,51 @@ class Servicer:
         return resp
 
     async def GetIncrementalCapabilities(self, request, context):
-        return self.pb2.GetIncrementalCapabilitiesResponse(protocol_version=1)
+        return self.pb2.GetIncrementalCapabilitiesResponse(protocol_version=1, lightweight_graph_queries=True)
+
+    async def LoadStateFromFile(self, request, context):
+        return self.pb2.LoadStateFromFileResponse(trajectory_count=1)
+
+    async def SelectSubmapsInRegion(self, request, context):
+        resp = self.pb2.SelectSubmapsInRegionResponse(base_submap_count=4)
+        xs = [corner.x for corner in request.corners]
+        ys = [corner.y for corner in request.corners]
+        if xs and max(xs) - min(xs) < 0.05 and max(ys) - min(ys) < 0.05:
+            return resp
+        if xs and max(xs) - min(xs) > 1000:
+            for index in range(4):
+                item = resp.submap_ids.add()
+                item.trajectory_id = 0
+                item.submap_index = index
+            return resp
+        item = resp.submap_ids.add()
+        item.trajectory_id = 0
+        item.submap_index = 1
+        return resp
+
+    async def TrimSubmaps(self, request, context):
+        return self.pb2.TrimSubmapsResponse()
+
+    async def GetTrajectoryNodePoses(self, request, context):
+        resp = self.pb2.GetTrajectoryNodePosesResponse()
+        node = resp.node_poses.add()
+        node.node_id.trajectory_id = 0
+        node.node_id.submap_index = 0
+        node.global_pose.rotation.w = 1
+        node.timestamp = 1
+        return resp
+
+    async def GetConstraints(self, request, context):
+        return self.pb2.GetConstraintsResponse()
+
+    async def GetRetainedMapGeometry(self, request, context):
+        return self.pb2.GetRetainedMapGeometryResponse(submap_count=3)
+
+    async def GetRetainedMap(self, request, context):
+        return self.pb2.GetRetainedMapResponse(width=4, height=4)
+
+    async def GetIncrementalAlignmentStatus(self, request, context):
+        return self.pb2.GetIncrementalAlignmentStatusResponse(has_historical_match=self.batches > 0)
 
 
 async def serve(endpoint: str) -> None:

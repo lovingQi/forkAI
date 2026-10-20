@@ -1,0 +1,49 @@
+syntax = "proto3";
+
+package traverse.engine.v1;
+
+// 测试用协议。不是同事的 traverse_engine.proto。核对点 F 未关闭。
+
+service TraverseMappingService {
+  rpc GetServerInfo(Empty) returns (ServerInfo);
+  rpc ValidateSession(SessionRequest) returns (ValidateResponse);
+  rpc CreateSession(SessionRequest) returns (SessionIdResponse);
+  rpc AddSensorDataBatch(BatchRequest) returns (BatchResponse);
+  rpc ReceiveLocalMappingResults(LocalRequest) returns (stream LocalResult);
+  rpc FinishSession(SessionId) returns (Accepted);
+  rpc CheckIncrementalAlignment(AlignRequest) returns (AlignResponse);
+  rpc RunFinalOptimization(SessionId) returns (Success);
+  rpc GetMapSnapshot(SnapshotRequest) returns (Snapshot);
+  rpc ExportResult(SessionId) returns (ExportResponse);
+  rpc DeleteSession(SessionId) returns (Deleted);
+}
+
+message Empty {}
+message SessionRequest { string definition_json = 1; }
+message ValidateResponse { bool valid = 1; }
+message SessionIdResponse { uint64 session_id = 1; }
+message SessionId { uint64 session_id = 1; }
+message BatchRequest { uint64 session_id = 1; uint64 batch_sequence = 2; int32 count = 3; }
+message BatchResponse {
+  uint64 accepted_batch_sequence = 1;
+  uint64 accepted_sensor_messages = 2;
+  uint64 total_accepted_sensor_messages = 3;
+}
+message LocalRequest { uint64 session_id = 1; int32 max_points = 2; double max_rate_hz = 3; }
+message LocalResult { uint64 revision = 1; int32 point_count = 2; }
+message Accepted { bool accepted = 1; }
+message AlignRequest { uint64 session_id = 1; bool confirm = 2; }
+message AlignResponse { string state = 1; string message = 2; }
+message Success { bool success = 1; }
+message SnapshotRequest { uint64 session_id = 1; int32 max_points = 2; uint64 after_revision = 3; }
+message Snapshot { uint64 revision = 1; bytes points = 2; int32 point_count = 3; }
+message ExportResponse { uint64 session_id = 1; }
+message Deleted { bool deleted = 1; }
+message ServerInfo {
+  uint32 protocol_major = 1;
+  uint32 protocol_minor = 2;
+  string engine_version = 3;
+  string build_id = 4;
+  bool online = 5;
+  bool incremental = 6;
+}

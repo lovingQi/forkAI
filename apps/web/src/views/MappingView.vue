@@ -11,11 +11,13 @@
     <MappingPrepare
       v-else-if="step === 'prepare'"
       :profiles="store.profiles"
+      :mode="prepareMode"
       @back="step = 'home'"
       @start="onStart"
     />
     <template v-else-if="step === 'running' && store.task">
-      <LiveMap2D ref="live" :png="bitmap" :meta="meta" :trajectory="trajectory" :pose="pose" :scan="scan" />
+      <LiveMap3D v-if="store.task?.dimension === '3d'" :points="cloudPoints" />
+      <LiveMap2D v-else ref="live" :png="bitmap" :meta="meta" :trajectory="trajectory" :pose="pose" :scan="scan" />
       <MappingRunPanel :task="store.task" @finish="onFinish" @cancel="onCancel" />
     </template>
     <MappingResult
@@ -39,6 +41,7 @@ import MappingPrepare from '@/components/mapping/MappingPrepare.vue'
 import MappingRunPanel from '@/components/mapping/MappingRunPanel.vue'
 import MappingResult from '@/components/mapping/MappingResult.vue'
 import LiveMap2D from '@/components/mapping/LiveMap2D.vue'
+import LiveMap3D from '@/components/mapping/LiveMap3D.vue'
 import { consoleDriveStop } from '@/api/console'
 import { cancelMapping, deleteMappingMap, downloadMappingZip, finishMapping, openMappingLive, startMapping } from '@/api/mapping'
 import { useMappingStore } from '@/stores/mapping'
@@ -52,6 +55,7 @@ const meta = ref<any>(null)
 const trajectory = ref<number[][]>([])
 const pose = ref<any>(null)
 const scan = ref<number[][]>([])
+const cloudPoints = ref<number[]>([])
 const result = ref<any>(null)
 const live = ref<{ fit: () => void } | null>(null)
 let closeLive: (() => void) | null = null
@@ -59,8 +63,12 @@ let pollTimer: number | null = null
 const generation = { value: 0 }
 let cursor = 0
 
+const prepareMode = ref<'online' | 'offline' | 'extend' | 'patch'>('online')
 function onEnter(id: string) {
-  if (id === 'online') step.value = 'prepare'
+  if (id === 'online' || id === 'offline' || id === 'extend' || id === 'patch') {
+    prepareMode.value = id as typeof prepareMode.value
+    step.value = 'prepare'
+  }
 }
 async function onStart(draft: Record<string, unknown>) {
   try {

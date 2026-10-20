@@ -5,6 +5,7 @@
  * 零依赖：Node 内置 http + 手写最小 WebSocket 帧编解码。
  */
 import http from 'node:http'
+import net from 'node:net'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -925,4 +926,43 @@ server.on('upgrade', (req, socket) => {
 
 server.listen(PORT, HOST, () => {
   console.log(`[mock-jarvis] http://${HOST}:${PORT} 已就绪（模拟车端，无实车）`)
+})
+
+// 建图录包的 TCP 模拟。帧格式：#$<长度>##<JSON>~$。核对点 G 未对照真车。
+const TCP_PORT = Number(process.env.MOCK_JARVIS_TCP_PORT || 7273)
+let scanName = ''
+const tcp = net.createServer((socket) => {
+  let buf = ''
+  socket.on('data', (chunk) => {
+    buf += chunk.toString('utf8')
+    while (true) {
+      const head = buf.indexOf('#$')
+      if (head < 0) return
+      const mid = buf.indexOf('##', head + 2)
+      if (mid < 0) return
+      const len = Number(buf.slice(head + 2, mid))
+      if (!Number.isFinite(len)) { buf = ''; return }
+      const start = mid + 2
+      if (buf.length < start + len + 2) return
+      const body = buf.slice(start, start + len)
+      buf = buf.slice(start + len + 2)
+      let packet = {}
+      try { packet = JSON.parse(body) } catch { packet = {} }
+      const cmd = packet['#CMD#']
+      let reply = { '#CMD#': cmd, ok: true }
+      if (cmd === 'UmConnect') {
+        reply.ok = packet.user === 'test' && packet.password === 'test'
+      } else if (cmd === 'UmMapping') {
+        scanName = packet.flag ? String(packet.name || '') : ''
+      } else if (cmd === 'UmGetMappingState') {
+        reply.flag = scanName !== ''
+        reply.name = scanName
+      }
+      const text = JSON.stringify(reply)
+      socket.write(`#$${text.length}##${text}~$`)
+    }
+  })
+})
+tcp.listen(TCP_PORT, HOST, () => {
+  console.log(`[mock-jarvis] tcp://${HOST}:${TCP_PORT} 建图录包模拟`)
 })

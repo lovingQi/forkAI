@@ -1,5 +1,10 @@
 jarvis:
   baseUrl: http://127.0.0.1:8080
+  tcp:
+    host: 127.0.0.1
+    port: 7273
+    user: test
+    password: test
 server:
   host: 0.0.0.0
   port: 19000

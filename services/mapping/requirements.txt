@@ -8,3 +8,7 @@ numpy>=1.26
 rosbags==0.10.6
 pyyaml==6.0.2
 httpx==0.27.2
+mcap==1.2.2
+mcap-ros1-support==0.7.0
+zstandard==0.23.0
+lz4==4.3.3

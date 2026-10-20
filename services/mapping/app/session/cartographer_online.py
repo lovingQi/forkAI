@@ -11,7 +11,10 @@ from ..engine.cartographer_profile import load_runtime_profile, product_by_id
 from ..engine.process import EngineProcess
 from ..errors import MappingError
 from ..feed.convert import convert_laser_scan, convert_odometry
-from ..feed.feeder import CLIENT_ID, run_feeder
+from ..feed.feeder import CLIENT_ID, run_feeder, run_recorded_feeder
+from ..feed.pause_gate import PauseGate
+from ..incremental.plan2d import initial_relative_pose, json_pose_to_state, json_region_to_state
+from ..recording.reader import open_recording
 from ..geom import compose, from_universal_ticks, transform_point, yaw_of
 from ..ingest.foxglove_client import FoxgloveClient
 from ..ingest.observe import extrinsic_for, observe_topics
@@ -19,7 +22,7 @@ from ..ingest.online_stream import OnlineStream
 from ..ingest.ros1_codec import decode
 from ..preview.png import encode_gray8
 
-_ACTIVE = {"running", "ready-to-save"}
+_ACTIVE = {"running", "paused", "ready-to-save"}
 
 
 class OnlineSession:
@@ -106,10 +109,13 @@ class OnlineSession:
         odom = self.task.inputs.get("odometry")
         if odom:
             specs.append({"topic": odom["topic"], "kind": "odometry"})
-        observed = await observe_topics(
-            cfg["foxglove"]["url"], specs, cfg["foxglove"]["startTimeoutMs"] / 1000, self.ctx.urdf, tracking,
-        )
-        if odom:
+        if (self.task.source or {}).get("kind") == "recording":
+            observed = None
+        else:
+            observed = await observe_topics(
+                cfg["foxglove"]["url"], specs, cfg["foxglove"]["startTimeoutMs"] / 1000, self.ctx.urdf, tracking,
+            )
+        if odom and observed:
             child = observed[odom["topic"]]["child"]
             expected = (self.runtime.get("odometry") or {}).get("childFrame")
             if expected and child and child != str(expected).lstrip("/"):
@@ -117,7 +123,14 @@ class OnlineSession:
         sensors = [{"id": item["sensorId"], "type": "RANGE"} for item in self.task.inputs["ranges"]]
         if odom:
             sensors.append({"id": (product["inputs"]["odometry"] or {}).get("sensorId") or "odometry", "type": "ODOMETRY"})
-        self.trajectory_id = await self.client.add_trajectory(sensors, self.runtime["trajectoryBuilderOptions"], CLIENT_ID)
+        options = json.loads(json.dumps(self.runtime["trajectoryBuilderOptions"]))
+        if (self.task.objective or {}).get("kind") not in (None, "create"):
+            options = await self._incremental_options(options)
+        self.trajectory_id = await self.client.add_trajectory(sensors, options, CLIENT_ID)
+        self.gate = PauseGate()
+        if (self.task.source or {}).get("kind") == "recording":
+            await self._start_recording(specs, tracking, odom)
+            return
         topics = [spec["topic"] for spec in specs]
         self.stream = OnlineStream(topics)
         self.stream.arm()
@@ -175,6 +188,19 @@ class OnlineSession:
                     self._set_status("ready-to-save")
                 else:
                     raise MappingError("MAPPING_TASK_INTERRUPTED", "输入中断时引擎已退出")
+            if self.action == "pause" and self.task.status == "running" and (self.task.source or {}).get("kind") == "recording":
+                self.gate.pause()
+                self._set_status("paused")
+                self.action = None
+            if self.action == "resume" and self.task.status == "paused" and self.task.alignmentPhase != "awaiting-confirmation":
+                self.gate.resume()
+                self._set_status("running")
+                self.action = None
+            if self.action == "confirm" and self.task.alignmentPhase == "awaiting-confirmation":
+                self.task.alignmentPhase = "confirmed"
+                self.gate.resume()
+                self._set_status("running")
+                self.action = None
             if self.action == "cancel":
                 await self._cancel()
                 return
@@ -184,6 +210,8 @@ class OnlineSession:
             self._touch_stats()
 
     def _watchdog(self) -> None:
+        if (self.task.source or {}).get("kind") == "recording":
+            return
         if self.task.status != "running" or self.stream is None or self.closing:
             return
         now = time.monotonic()
@@ -211,6 +239,13 @@ class OnlineSession:
         if not (self.staging / "map.json").is_file():
             raise MappingError("MAPPING_RESULT_INVALID", "引擎没有在状态文件旁写出 map.json")
         exported.rename(self.staging / "mapping_state.mcap")
+        objective = self.task.objective or {}
+        if objective.get("kind") not in (None, "create"):
+            from ..incremental.plan2d import transform_incremental_map
+            base = self.ctx.maps.directory(objective["baseProjectId"])
+            transform = json.loads((base / "project.json").read_text(encoding="utf-8")).get("map2dFromLocalization") or {}
+            current = json.loads((self.staging / "map.json").read_text(encoding="utf-8"))
+            (self.staging / "map.json").write_text(json.dumps(transform_incremental_map(current, transform)), encoding="utf-8")
         (self.staging / "online-input.json").write_text(json.dumps({
             "schemaVersion": 1,
             "stopReason": self.task.stopReason,
@@ -361,9 +396,92 @@ class OnlineSession:
                 self.ctx.activity(self.task.id).append("diagnostic", {"message": str(exc)})
             await asyncio.sleep(max(0.0, 1 - (time.monotonic() - started)))
 
-    def _on_progress(self, scans: int, odoms: int) -> None:
+    def _on_progress(self, scans: int, odoms: int, stamp_ns: int | None = None) -> None:
         self.submitted = scans + odoms
+        total = getattr(self, "recording_span", None)
+        if stamp_ns and total:
+            start, end = total
+            if end and end > start:
+                self.task.progress = max(0.0, min(1.0, (stamp_ns - start) / (end - start)))
         self._touch_stats()
+
+    async def _incremental_options(self, options: dict) -> dict:
+        objective = self.task.objective
+        base = self.ctx.maps.directory(objective["baseProjectId"])
+        transform = json.loads((base / "project.json").read_text(encoding="utf-8")).get("map2dFromLocalization") or {}
+        await self.client.load_frozen_state(str(base / "mapping_state.mcap"))
+        if objective["kind"] == "update-region":
+            selected, base_count = await self.client.select_submaps(json_region_to_state(objective["region"], transform))
+            if not selected:
+                raise MappingError("MAPPING_INPUT_INVALID", "所选范围没有旧地图", diagnostic="INCREMENTAL_REGION_EMPTY")
+            if len(selected) >= base_count:
+                raise MappingError("MAPPING_INPUT_INVALID", "范围太大，没有留下对齐参考", diagnostic="INCREMENTAL_REGION_NO_REFERENCE")
+            await self.client.trim_submaps(selected)
+        target = json_pose_to_state(objective["initialPose"], transform)
+        options["initialTrajectoryPose"] = {
+            "toTrajectoryId": 0,
+            "timestamp": 1,
+            "relativePose": initial_relative_pose(target, {"x": 0.0, "y": 0.0, "yaw": 0.0}),
+        }
+        return options
+
+    async def _checkpoint(self, scans: int) -> None:
+        if self.task.alignmentPhase == "confirmed" or (self.task.objective or {}).get("kind") in (None, "create"):
+            return
+        await self.client.run_final_optimization()
+        if await self.client.alignment_matched(self.trajectory_id):
+            self.gate.pause()
+            self.task.alignmentPhase = "awaiting-confirmation"
+            self._set_status("paused")
+            return
+        if scans >= 1000:
+            raise MappingError("MAPPING_TASK_START_FAILED", "新数据没有和旧地图对齐")
+
+    async def _start_recording(self, specs, tracking, odom) -> None:
+        meta = self.ctx.recordings.get(self.task.source["recordingId"])
+        if not meta:
+            raise MappingError("MAPPING_INPUT_INVALID", "录包不存在")
+        summary, messages = open_recording(meta["path"], [spec["topic"] for spec in specs])
+        self.recording_span = (summary.get("startTimeNs"), summary.get("endTimeNs"))
+        observed = {}
+        for item in messages():
+            observed.setdefault(item["topic"], item)
+            if len(observed) == len(specs):
+                break
+        extrinsics = {
+            item["topic"]: extrinsic_for(self.ctx.urdf, tracking, observed[item["topic"]]["frame"])
+            for item in self.task.inputs["ranges"]
+        }
+        self.bindings = {}
+        for item in self.task.inputs["ranges"]:
+            sensor_id, topic, extrinsic = item["sensorId"], item["topic"], extrinsics[item["topic"]]
+
+            def convert_range(message, sensor_id=sensor_id, extrinsic=extrinsic):
+                return convert_laser_scan(message["decoded"], sensor_id, extrinsic, self.trajectory_id, CLIENT_ID, message["stamp_ns"])
+
+            self.bindings[topic] = {"convert": convert_range}
+        if odom:
+            self.bindings[odom["topic"]] = {"convert": lambda message, sensor_id="odometry": (
+                convert_odometry(message["decoded"], sensor_id, {"translation": {"x": 0, "y": 0, "z": 0}, "rotation": {"x": 0, "y": 0, "z": 0, "w": 1}}, self.trajectory_id, CLIENT_ID, message["stamp_ns"]),
+                0,
+            )}
+        self.stream = _RecordControl()
+        summary2, messages2 = open_recording(meta["path"], [spec["topic"] for spec in specs])
+        self.feeder_task = asyncio.create_task(self._guard(self._recorded(messages2, summary2)))
+        self.background.append(self.feeder_task)
+        self.background.append(asyncio.create_task(self._guard(self._slam())))
+        self.background.append(asyncio.create_task(self._guard(self._preview())))
+        self.last_result_at = time.monotonic()
+        self._set_status("running")
+
+    async def _recorded(self, messages, summary) -> None:
+        await run_recorded_feeder(
+            messages, self.client, self.trajectory_id, self.bindings, self.runtime["limits"], self.gate,
+            self._on_progress, self._checkpoint if (self.task.objective or {}).get("kind") not in (None, "create") else None,
+        )
+        if self.stream and self.stream.stop_reason is None:
+            self.stream.stop("end_of_input")
+        self.wake.set()
 
     def _touch_stats(self) -> None:
         if self.stream:
@@ -403,3 +521,20 @@ class OnlineSession:
                     "MAPPING_TASK_INTERRUPTED", "建图输入中断", diagnostic=repr(exc),
                 )
             self.wake.set()
+
+
+class _RecordControl:
+    def __init__(self):
+        self.stop_reason = None
+        self.stats = {"received": 0, "accepted": 0, "submitted": 0, "rejected": 0, "pending": 0, "droppedRanges": 0}
+        self.queue = []
+
+    def stop(self, reason: str) -> None:
+        self.stop_reason = reason
+
+    @property
+    def stopped(self) -> bool:
+        return self.stop_reason is not None
+
+    def poll_silence(self) -> None:
+        return None

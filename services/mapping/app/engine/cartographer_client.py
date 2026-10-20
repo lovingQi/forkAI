@@ -190,6 +190,35 @@ class CartographerClient:
         return grid
 
 
+    async def load_frozen_state(self, filename: str) -> None:
+        req = self.pb2.LoadStateFromFileRequest(file_path=filename, client_id="forkai", load_frozen_state=True)
+        await self.stub.LoadStateFromFile(req, timeout=30)
+        await self.run_final_optimization()
+
+    async def select_submaps(self, corners: list[dict]) -> tuple[list[dict], int]:
+        req = self.pb2.SelectSubmapsInRegionRequest(client_id="forkai")
+        for corner in corners:
+            point = req.corners.add()
+            point.x, point.y, point.z = corner["x"], corner["y"], corner.get("z", 0)
+        resp = await self.stub.SelectSubmapsInRegion(req, timeout=30)
+        selected = [{"trajectoryId": int(item.trajectory_id), "submapIndex": int(item.submap_index)} for item in resp.submap_ids]
+        return selected, int(resp.base_submap_count)
+
+    async def trim_submaps(self, selected: list[dict]) -> None:
+        req = self.pb2.TrimSubmapsRequest(client_id="forkai")
+        for item in selected:
+            sub = req.submap_ids.add()
+            sub.trajectory_id = int(item["trajectoryId"])
+            sub.submap_index = int(item["submapIndex"])
+        await self.stub.TrimSubmaps(req, timeout=30)
+
+    async def alignment_matched(self, trajectory_id: int) -> bool:
+        resp = await self.stub.GetIncrementalAlignmentStatus(
+            self.pb2.GetIncrementalAlignmentStatusRequest(trajectory_id=trajectory_id), timeout=30,
+        )
+        return bool(resp.has_historical_match)
+
+
 def _fill_rigid_origin(msg, origin: dict) -> None:
     msg.x = origin["x"]
     msg.y = origin["y"]

@@ -174,6 +174,19 @@ async def main() -> int:
         )
         check("d. mock_fail→failed+fail边", ok, f"final={st['flowStatus']} {st['nodeStates']}")
 
+        # ---- (g) TCP 建图录包。核对点 G 未对照真车，这里只对 mock。 ----
+        from app.jarvis.tcp_client import JarvisTcpClient
+        try:
+            tcp = JarvisTcpClient("127.0.0.1", 7273, "test", "test")
+            started = await tcp.command("UmMapping", {"name": "proto-scan", "flag": True})
+            state = await tcp.command("UmGetMappingState")
+            stopped = await tcp.command("UmMapping", {"name": "", "flag": False})
+            idle = await tcp.command("UmGetMappingState")
+            ok = started.get("ok") is not False and state.get("flag") is True and idle.get("flag") is False and stopped.get("ok") is not False
+            check("g. TCP 录包开始/查询/停止", ok, f"state={state} idle={idle}")
+        except Exception as exc:
+            check("g. TCP 录包开始/查询/停止", False, str(exc))
+
     fails = [n for n, ok in RESULTS if not ok]
     print(f"[PROTO] ===== 汇总: {len(RESULTS) - len(fails)}/{len(RESULTS)} PASS"
           + (f"，失败: {fails}" if fails else "，全部通过 ====="), flush=True)

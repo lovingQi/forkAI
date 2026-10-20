@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .api import routes_console, routes_flows, routes_mapping, routes_pair, routes_robot, routes_site, routes_trace, routes_voice, ws_proxy
+from .api import routes_console, routes_flows, routes_jarvis_mapping, routes_mapping, routes_pair, routes_robot, routes_site, routes_trace, routes_voice, ws_proxy
 from .api.deps import LocalOnlyError, UnpairedError
 from .config import load_config
 from .console.controller import ConsoleController
@@ -120,6 +120,7 @@ app.include_router(routes_flows.router)
 app.include_router(routes_trace.router)
 app.include_router(routes_console.router)
 app.include_router(routes_mapping.router)
+app.include_router(routes_jarvis_mapping.router)
 app.include_router(ws_proxy.router)
 
 # 静态托管前端构建产物（对齐 index.ts express.static）

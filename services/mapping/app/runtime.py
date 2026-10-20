@@ -27,6 +27,15 @@ class Context:
         self.urdf = load_urdf(self.urdf_path) if self.urdf_path.is_file() else {"sha256": "", "links": set(), "joints": []}
         root = Path(cfg["engines"]["cartographer"]["profileRoot"])
         self.profiles = derive_product_profiles(root) if root.is_dir() else []
+        from .recording.store import RecordingStore
+        self.recordings = RecordingStore(data / "recordings")
+        self.recorder = None
+
+    def _traverse_caps(self) -> dict:
+        raw = str(((self.cfg.get("engines") or {}).get("traverse") or {}).get("root") or "")
+        root = Path(raw) if raw else None
+        ready = bool(root and (root / "runtime.json").is_file() and (root / "proto").is_dir())
+        return {"online": ready, "offline": ready, "incremental": ready}
 
     def activity(self, task_id: str) -> ActivityLog:
         if task_id not in self._activities:
@@ -47,8 +56,8 @@ class Context:
                 "reason": "；".join(reasons),
             }],
             "capabilities": {
-                "2d": {"online": available, "offline": False, "incremental": False},
-                "3d": {"online": False, "offline": False, "incremental": False},
+                "2d": {"online": available, "offline": available, "incremental": available},
+                "3d": self._traverse_caps(),
             },
             "activeTaskId": self.scheduler.active_task_id,
         }

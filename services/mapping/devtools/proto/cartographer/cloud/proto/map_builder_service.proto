@@ -17,6 +17,14 @@ service MapBuilderService {
   rpc ReceiveLocalSlamResults(ReceiveLocalSlamResultsRequest) returns (stream ReceiveLocalSlamResultsResponse);
   rpc GetLocalToGlobalTransform(GetLocalToGlobalTransformRequest) returns (GetLocalToGlobalTransformResponse);
   rpc GetIncrementalCapabilities(GetIncrementalCapabilitiesRequest) returns (GetIncrementalCapabilitiesResponse);
+  rpc LoadStateFromFile(LoadStateFromFileRequest) returns (LoadStateFromFileResponse);
+  rpc SelectSubmapsInRegion(SelectSubmapsInRegionRequest) returns (SelectSubmapsInRegionResponse);
+  rpc TrimSubmaps(TrimSubmapsRequest) returns (TrimSubmapsResponse);
+  rpc GetTrajectoryNodePoses(GetTrajectoryNodePosesRequest) returns (GetTrajectoryNodePosesResponse);
+  rpc GetConstraints(GetConstraintsRequest) returns (GetConstraintsResponse);
+  rpc GetRetainedMapGeometry(GetRetainedMapGeometryRequest) returns (GetRetainedMapGeometryResponse);
+  rpc GetRetainedMap(GetRetainedMapRequest) returns (GetRetainedMapResponse);
+  rpc GetIncrementalAlignmentStatus(GetIncrementalAlignmentStatusRequest) returns (GetIncrementalAlignmentStatusResponse);
 }
 
 enum SensorType {
@@ -177,4 +185,49 @@ message GetLocalToGlobalTransformResponse {
 message GetIncrementalCapabilitiesRequest {}
 message GetIncrementalCapabilitiesResponse {
   int32 protocol_version = 1;
+  bool lightweight_graph_queries = 2;
 }
+
+message LoadStateFromFileRequest {
+  string file_path = 1;
+  string client_id = 2;
+  bool load_frozen_state = 3;
+}
+message LoadStateFromFileResponse {
+  int32 trajectory_count = 1;
+}
+message Point3d {
+  double x = 1;
+  double y = 2;
+  double z = 3;
+}
+message SelectSubmapsInRegionRequest {
+  string client_id = 1;
+  repeated Point3d corners = 2;
+}
+message SelectSubmapsInRegionResponse {
+  repeated SubmapId submap_ids = 1;
+  int32 base_submap_count = 2;
+}
+message TrimSubmapsRequest {
+  string client_id = 1;
+  repeated SubmapId submap_ids = 2;
+}
+message TrimSubmapsResponse {}
+message GetTrajectoryNodePosesRequest {}
+message TrajectoryNodePose {
+  SubmapId node_id = 1;
+  Rigid3d global_pose = 2;
+  int64 timestamp = 3;
+}
+message GetTrajectoryNodePosesResponse {
+  repeated TrajectoryNodePose node_poses = 1;
+}
+message GetConstraintsRequest {}
+message GetConstraintsResponse {}
+message GetRetainedMapGeometryRequest { string client_id = 1; }
+message GetRetainedMapGeometryResponse { int32 submap_count = 1; }
+message GetRetainedMapRequest { string client_id = 1; }
+message GetRetainedMapResponse { int32 width = 1; int32 height = 2; }
+message GetIncrementalAlignmentStatusRequest { int32 trajectory_id = 1; }
+message GetIncrementalAlignmentStatusResponse { bool has_historical_match = 1; }

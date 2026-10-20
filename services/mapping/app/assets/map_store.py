@@ -40,11 +40,8 @@ def _fsync_tree(path: Path) -> None:
             os.close(dirfd)
 
 
-def project_manifest(project_id: str, name: str, robot_resource_id: str, endpoint: str, stop_reason: str | None) -> dict:
-    online = {"robotResourceId": robot_resource_id, "endpoint": endpoint}
-    if stop_reason:
-        online["sourceStopReason"] = stop_reason
-    return {
+def project_manifest(project_id: str, name: str, robot_resource_id: str, endpoint: str, stop_reason: str | None, objective: dict | None = None, parent: dict | None = None) -> dict:
+    project = {
         "schemaVersion": 1,
         "projectId": project_id,
         "name": name,
@@ -52,9 +49,21 @@ def project_manifest(project_id: str, name: str, robot_resource_id: str, endpoin
             {"role": "navigation-map-2d", "kind": "localization-map-2d", "path": "map.json"},
             {"role": "engine-state", "kind": "engine-state", "path": "mapping_state.mcap"},
         ],
-        "map2dFromLocalization": {"txMm": 0, "tyMm": 0, "yawRad": 0},
-        "onlineSource": online,
+        "map2dFromLocalization": (parent or {}).get("map2dFromLocalization") or {"txMm": 0, "tyMm": 0, "yawRad": 0},
     }
+    if endpoint:
+        online = {"robotResourceId": robot_resource_id, "endpoint": endpoint}
+        if stop_reason:
+            online["sourceStopReason"] = stop_reason
+        project["onlineSource"] = online
+    if objective and objective.get("kind") not in (None, "create"):
+        project["incremental"] = {
+            "schemaVersion": 1,
+            "parentProjectId": objective["baseProjectId"],
+            "parentStateSha256": (parent or {}).get("stateSha256") or "",
+            "objective": objective,
+        }
+    return project
 
 
 def validate_project(project: dict) -> None:
@@ -65,14 +74,17 @@ def validate_project(project: dict) -> None:
     if ("engine-state", "engine-state") not in roles:
         raise MappingError("MAPPING_RESULT_INVALID", "工程缺少引擎状态")
     if any(item.get("role") == "localization-map-3d" for item in reps):
-        raise MappingError("MAPPING_RESULT_INVALID", "二维工程不能带三维地图")
+        if len(reps) not in (3, 4):
+            raise MappingError("MAPPING_RESULT_INVALID", "三维工程表示数量不符合导入规则")
+        return
     if len(reps) != 2:
         raise MappingError("MAPPING_RESULT_INVALID", "二维工程表示数量不符合 robospace 导入规则")
-    online = project.get("onlineSource") or {}
-    endpoint = online.get("endpoint") or ""
-    import re
-    if not re.fullmatch(r"ws://(?:\d{1,3}\.){3}\d{1,3}:8765/?", endpoint):
-        raise MappingError("MAPPING_RESULT_INVALID", "在线来源地址不符合工程格式")
+    online = project.get("onlineSource")
+    if online is not None:
+        import re
+        endpoint = online.get("endpoint") or ""
+        if not re.fullmatch(r"ws://(?:\d{1,3}\.){3}\d{1,3}:8765/?", endpoint):
+            raise MappingError("MAPPING_RESULT_INVALID", "在线来源地址不符合工程格式")
 
 
 class MapStore:
@@ -92,7 +104,13 @@ class MapStore:
         if not is_umcl_json_map(parsed):
             raise MappingError("MAPPING_RESULT_INVALID", "map.json 不是合法 UMCL 地图")
         project_id = str(uuid.uuid4())
-        project = project_manifest(project_id, task["name"], robot_resource_id, endpoint, task.get("stopReason"))
+        objective = task.get("objective") or {"kind": "create"}
+        parent = None
+        if objective.get("kind") not in (None, "create"):
+            parent_dir = self._dir(objective["baseProjectId"])
+            parent = json.loads((parent_dir / "project.json").read_text(encoding="utf-8"))
+            parent["stateSha256"] = _sha256(parent_dir / "mapping_state.mcap")
+        project = project_manifest(project_id, task["name"], robot_resource_id, endpoint, task.get("stopReason"), objective, parent)
         validate_project(project)
         incoming = self.root / f".incoming-{project_id}"
         final = self.root / project_id
@@ -156,6 +174,34 @@ class MapStore:
         if not path.is_file():
             raise MappingError("MAPPING_INPUT_INVALID", "这张地图没有预览图", status=404)
         return path.read_bytes()
+
+    def commit_3d(self, task: dict, staging: Path, endpoint: str, robot_resource_id: str) -> str:
+        project_id = str(uuid.uuid4())
+        project = {
+            "schemaVersion": 1,
+            "projectId": project_id,
+            "name": task["name"],
+            "representations": [
+                {"role": "navigation-map-2d", "kind": "localization-map-2d", "path": "map_2d.json"},
+                {"role": "localization-map-3d", "kind": "point-cloud", "path": "global.pcd"},
+                {"role": "engine-state", "kind": "engine-state", "path": "map_project"},
+            ],
+            "map2dFromLocalization": {"txMm": 0, "tyMm": 0, "yawRad": 0},
+        }
+        if endpoint:
+            project["onlineSource"] = {"robotResourceId": robot_resource_id, "endpoint": endpoint}
+        validate_project(project)
+        final = self.root / project_id
+        incoming = self.root / f".incoming-{project_id}"
+        if incoming.exists():
+            shutil.rmtree(incoming)
+        incoming.mkdir()
+        for name in ("map_2d.json", "global.pcd"):
+            shutil.copy2(staging / name, incoming / name)
+        shutil.copytree(staging / "map_project", incoming / "map_project")
+        (incoming / "project.json").write_text(json.dumps(project, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.rename(incoming, final)
+        return project_id
 
     def directory(self, project_id: str) -> Path:
         return self._dir(project_id)

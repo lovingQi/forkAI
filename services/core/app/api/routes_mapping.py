@@ -11,15 +11,25 @@ router = APIRouter()
 def _needs_site(method: str, path: str) -> bool:
     if method == "POST" and path == "tasks":
         return True
-    if method == "POST" and path.startswith("tasks/") and path.rsplit("/", 1)[-1] in {"finish", "cancel"}:
+    if method == "POST" and path.startswith("tasks/") and path.rsplit("/", 1)[-1] in {"finish", "cancel", "pause", "resume", "confirm-alignment", "initial-pose-3d"}:
         return True
     if method == "DELETE" and path.startswith("maps/"):
         return True
+    if method == "POST" and path in {"recordings", "maps/import", "drafts/incremental-analysis"}:
+        return True
+    if method == "POST" and path.startswith("recordings/") and path.endswith("/stop"):
+        return True
+    if method == "DELETE" and path.startswith("recordings/"):
+        return True
+    if path == "recordings/import":
+        return False
     return False
 
 
 @router.api_route("/api/mapping/{path:path}", methods=["GET", "POST", "DELETE"])
 async def proxy_mapping(path: str, request: Request, client_id: str = Depends(auth)):
+    if path == "recordings/import":
+        return JSONResponse(status_code=403, content={"succeed": False, "error": "forbidden"})
     if _needs_site(request.method, path) and not request.app.state.sessions.has_site(client_id):
         return JSONResponse(status_code=403, content={"succeed": False, "error": "no_site"})
     mapping = request.app.state.cfg.get("mapping") or {}

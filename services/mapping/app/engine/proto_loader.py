@@ -9,11 +9,11 @@ from ..errors import MappingError
 SERVICE_PROTO = Path("cartographer/cloud/proto/map_builder_service.proto")
 
 
-def load_proto(proto_root: Path, cache_root: Path):
+def load_proto(proto_root: Path, cache_root: Path, service_rel: str = str(SERVICE_PROTO), module: str = "cartographer.cloud.proto.map_builder_service_pb2"):
     proto_root = proto_root.resolve()
-    service = proto_root / SERVICE_PROTO
+    service = proto_root / service_rel
     if not service.is_file():
-        raise MappingError("MAPPING_ENGINE_UNAVAILABLE", f"缺少 {SERVICE_PROTO}")
+        raise MappingError("MAPPING_ENGINE_UNAVAILABLE", f"缺少 {service_rel}")
     digest = hashlib.sha256()
     files = sorted(proto_root.rglob("*.proto"))
     for path in files:
@@ -34,13 +34,17 @@ def load_proto(proto_root: Path, cache_root: Path):
         ]
         if protoc.main(args) != 0:
             raise MappingError("MAPPING_ENGINE_UNAVAILABLE", "proto 编译失败")
-        for folder in (out / "cartographer", out / "cartographer/cloud", out / "cartographer/cloud/proto"):
+        for folder in (
+            out / "cartographer", out / "cartographer/cloud", out / "cartographer/cloud/proto",
+            out / "traverse", out / "traverse/engine", out / "traverse/engine/v1",
+        ):
+            folder.mkdir(parents=True, exist_ok=True)
             init = folder / "__init__.py"
             if not init.is_file():
                 init.write_text("", encoding="utf-8")
         marker.write_text("ok", encoding="utf-8")
     if str(out) not in sys.path:
         sys.path.insert(0, str(out))
-    pb2 = importlib.import_module("cartographer.cloud.proto.map_builder_service_pb2")
-    pb2_grpc = importlib.import_module("cartographer.cloud.proto.map_builder_service_pb2_grpc")
+    pb2 = importlib.import_module(module)
+    pb2_grpc = importlib.import_module(module.replace("_pb2", "_pb2_grpc"))
     return pb2, pb2_grpc

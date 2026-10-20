@@ -281,6 +281,81 @@ async def scenario_restart(stack: Stack) -> None:
         check("重启后残留任务变为中断", body.get("status") == "interrupted" and body.get("stopReason") == "service_restarted", str(body.get("status")))
 
 
+def write_sample_mcap(path: Path, scans: int = 30) -> None:
+    import math
+    import time
+    from mcap.writer import Writer
+    sys.path.insert(0, str(ROOT))
+    from app.ingest.ros1_codec import encode_laser_scan, encode_odometry
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "wb") as handle:
+        writer = Writer(handle)
+        writer.start()
+        laser_schema = writer.register_schema(name="sensor_msgs/LaserScan", encoding="ros1msg", data=b"")
+        odom_schema = writer.register_schema(name="nav_msgs/Odometry", encoding="ros1msg", data=b"")
+        front = writer.register_channel(topic="/front/scan", message_encoding="ros1", schema_id=laser_schema)
+        back = writer.register_channel(topic="/back/scan", message_encoding="ros1", schema_id=laser_schema)
+        odom = writer.register_channel(topic="/jarvis/odom", message_encoding="ros1", schema_id=odom_schema)
+        base = int(time.time() * 1e9)
+        for index in range(scans):
+            stamp = base + index * 50_000_000
+            sec, nsec = divmod(stamp, 1_000_000_000)
+            payload = encode_laser_scan({
+                "sec": sec, "nsec": nsec, "frame_id": "front_laser_link",
+                "angle_min": 0, "angle_max": 1, "angle_increment": 0.1, "time_increment": 0,
+                "range_min": 0.05, "range_max": 30, "ranges": [1.2] * 10,
+            })
+            writer.add_message(front, log_time=stamp, data=payload, publish_time=stamp)
+            back_payload = encode_laser_scan({
+                "sec": sec, "nsec": nsec, "frame_id": "back_laser_link",
+                "angle_min": math.pi, "angle_max": math.pi + 1, "angle_increment": 0.1, "time_increment": 0,
+                "range_min": 0.05, "range_max": 30, "ranges": [1.2] * 10,
+            })
+            writer.add_message(back, log_time=stamp, data=back_payload, publish_time=stamp)
+            odom_payload = encode_odometry({
+                "sec": sec, "nsec": nsec, "frame_id": "odom", "child_frame_id": "base_link",
+                "position": {"x": index * 0.01, "y": 0, "z": 0},
+                "orientation": {"x": 0, "y": 0, "z": 0, "w": 1},
+            })
+            writer.add_message(odom, log_time=stamp, data=odom_payload, publish_time=stamp)
+        writer.finish()
+
+
+async def scenario_offline(stack: Stack) -> None:
+    bag = stack.tmp / "sample.mcap"
+    write_sample_mcap(bag)
+    async with httpx.AsyncClient(timeout=30) as client:
+        imported = await client.post(f"{stack.base}/recordings/import", json={"path": str(bag), "name": "样例"})
+        # 没有配置 jarvis 目录时会 400。直接把文件登记成录包目录里的文件。
+        if imported.status_code != 200:
+            sys.path.insert(0, str(ROOT))
+            from app.recording.store import RecordingStore
+            store = RecordingStore(stack.tmp / "data" / "recordings")
+            meta = store.create("样例", "2d", "self", [
+                {"topic": "/front/scan"}, {"topic": "/back/scan"}, {"topic": "/jarvis/odom"},
+            ])
+            Path(meta["path"]).write_bytes(bag.read_bytes())
+            meta["status"] = "ready"
+            store.save(meta)
+            rec_id = meta["id"]
+        else:
+            rec_id = imported.json()["id"]
+        body = {**draft(), "name": "离线", "source": {"kind": "recording", "recordingId": rec_id}}
+        body.pop("mode", None)
+        created = await client.post(f"{stack.base}/tasks", json=body)
+        check("离线任务已创建", created.status_code == 201, created.text[:240])
+        if created.status_code != 201:
+            return
+        task_id = created.json()["id"]
+        done = await wait_task(client, stack.base, task_id, {"ready-to-save", "failed", "completed"}, 30)
+        check("离线读完待保存", done.get("status") == "ready-to-save", str(done.get("status")) + str(done.get("error")))
+        if done.get("status") != "ready-to-save":
+            return
+        await client.post(f"{stack.base}/tasks/{task_id}/finish")
+        saved = await wait_task(client, stack.base, task_id, {"completed", "failed"})
+        check("离线保存完成", saved.get("status") == "completed", str(saved.get("error")))
+
+
 async def main() -> int:
     if port_open(8765):
         print("[MAP-FLOW] FAIL  8765 已被占用，跳过流程测试", flush=True)
@@ -308,6 +383,13 @@ async def main() -> int:
             await scenario(stack)
         finally:
             stack.stop()
+    stack = Stack(tmp)
+    stack.write_config()
+    try:
+        stack.start()
+        await scenario_offline(stack)
+    finally:
+        stack.stop()
     stack = Stack(tmp)
     stack.write_config()
     try:

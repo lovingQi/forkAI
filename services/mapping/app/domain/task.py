@@ -22,7 +22,7 @@ ALLOWED = {
     "validating": {"starting", "failed"},
     "queued": {"starting", "failed", "cancelled"},
     "starting": {"running", "failed", "cancelled"},
-    "running": {"ready-to-save", "finishing", "failed", "cancelled", "interrupted"},
+    "running": {"paused", "ready-to-save", "finishing", "failed", "cancelled", "interrupted"},
     "paused": {"running", "finishing", "failed", "cancelled"},
     "ready-to-save": {"finishing", "failed", "cancelled", "interrupted"},
     "finishing": {"exporting", "failed"},
@@ -55,6 +55,10 @@ class MappingTask:
     })
     error: dict | None = None
     projectId: str | None = None
+    source: dict = field(default_factory=lambda: {"kind": "online"})
+    objective: dict = field(default_factory=lambda: {"kind": "create"})
+    alignmentPhase: str | None = None
+    progress: float | None = None
     createdAt: str = ""
     updatedAt: str = ""
 
@@ -73,6 +77,10 @@ class MappingTask:
             "stats": self.stats,
             "error": self.error,
             "projectId": self.projectId,
+            "source": self.source,
+            "objective": self.objective,
+            "alignmentPhase": self.alignmentPhase,
+            "progress": self.progress,
             "createdAt": self.createdAt,
             "updatedAt": self.updatedAt,
         }

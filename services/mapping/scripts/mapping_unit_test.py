@@ -132,6 +132,16 @@ def test_compose() -> None:
     check("两张子图能拼出占据栅格", grid["width"] > 0 and grid["height"] > 0 and occupied > 0, f"occupied={occupied}")
 
 
+def test_plan2d() -> None:
+    from app.incremental.plan2d import json_pose_to_state, plan_sha256, transform_incremental_map
+    state = json_pose_to_state({"xMm": 1000, "yMm": 0, "yawRad": 0}, {"txMm": 0, "tyMm": 0, "yawRad": 0})
+    check("毫米位姿换成米", abs(state["x"] - 1) < 1e-9 and state["y"] == 0)
+    umcl = {"Header": "umcl-map", "MapRes": 0.05, "MinPose": "0 0", "MaxPose": "1 1", "NumPoints": 1, "ObsPoints": [[0, 0]]}
+    moved = transform_incremental_map(umcl, {"txMm": 10, "tyMm": 0, "yawRad": 0})
+    check("增量地图按毫米平移", moved["ObsPoints"][0][0] == 10)
+    check("计划哈希稳定", len(plan_sha256([], state, None)) == 64)
+
+
 def main() -> int:
     test_time()
     test_scan()
@@ -141,6 +151,7 @@ def main() -> int:
     test_queue()
     test_png()
     test_compose()
+    test_plan2d()
     failed = RESULTS.count(False)
     print(f"[MAP-UNIT] {len(RESULTS) - failed}/{len(RESULTS)} passed", flush=True)
     return 1 if failed else 0

@@ -12,8 +12,9 @@ MAX_MESSAGE_BYTES = 2 * 1024 * 1024
 
 
 class FoxgloveClient:
-    def __init__(self, url: str):
+    def __init__(self, url: str, max_message_bytes: int = MAX_MESSAGE_BYTES):
         self.url = url
+        self.max_message_bytes = max_message_bytes
         self.channels: dict[int, dict] = {}
         self._ws = None
         self._queue: asyncio.Queue = asyncio.Queue()
@@ -25,12 +26,12 @@ class FoxgloveClient:
     async def connect(self, timeout: float = 10) -> None:
         try:
             self._ws = await asyncio.wait_for(
-                websockets.connect(self.url, subprotocols=[SUBPROTOCOL], max_size=MAX_MESSAGE_BYTES, proxy=None),
+                websockets.connect(self.url, subprotocols=[SUBPROTOCOL], max_size=self.max_message_bytes, proxy=None),
                 timeout=timeout,
             )
         except TypeError:
             self._ws = await asyncio.wait_for(
-                websockets.connect(self.url, subprotocols=[SUBPROTOCOL], max_size=MAX_MESSAGE_BYTES),
+                websockets.connect(self.url, subprotocols=[SUBPROTOCOL], max_size=self.max_message_bytes),
                 timeout=timeout,
             )
         except Exception as exc:
@@ -100,7 +101,7 @@ class FoxgloveClient:
     def _on_binary(self, message: bytes) -> None:
         if len(message) < 13 or message[0] != 1:
             return
-        if len(message) > MAX_MESSAGE_BYTES:
+        if len(message) > self.max_message_bytes:
             return
         sub_id = struct.unpack_from("<I", message, 1)[0]
         timestamp = struct.unpack_from("<Q", message, 5)[0]
