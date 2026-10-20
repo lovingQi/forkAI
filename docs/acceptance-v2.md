@@ -81,4 +81,21 @@ cd services/core && .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 19000
 4. **步骤58（试点部署）**：整车联调、站点名大小写口径确认（当前 norm 小写化）、音区实测唤醒率。
 5. 云端 TTS 音色/音量真机听感确认。
 
+## 7. V2.1 控制台验收
+
+软件证据（Mock / 浏览器，不能代替真车）：
+
+- `scripts/console_test.py`：车载屏配对、扫码凭证、现场锁门控、八方向、速度裁剪、关避障、货叉、急停、参数、向导、自检。
+- `tests/e2e/specs/07`–`10`：开机与扫码、基本控制、参数、初始向导。
+- 协议检查 (e)(f)：`forkextend` route 结构、`POST /api/config` 整段下发。
+
+真车待验（E5，未执行）：
+
+1. 八个方向的 `trans/rot` 符号与平顺性（按住 200ms 重发是否反复重激活 safedrive）。
+2. `trans` 速度口径（车端源码有 `speed/100` 换算，mock 把 trans 直接当 mm/s）。
+3. 行驶中软件急停关电机是滑行还是制动。
+4. 关避障后 core 崩溃，避障要等 core 重启才恢复。
+5. R1500 原地转向。
+6. 参数整段写入后的热重载效果，尤其激光与避障。
+
 —— 真车联调完成后填 docs/test-report.md（本版不含）。

@@ -109,6 +109,38 @@ taskflow:
 # 安全：急停上升沿强制退出现场锁
 safety:
   estop_exit_site: true
+# 车载屏控制台（V2.1 一期）
+console:
+  dataDir: data/console
+  joinTicketTtlMs: 120000
+  publicHost: ""
+  allowRemoteForce: false
+  drive:
+    heartbeatMs: 200
+    minTrans: 100
+    defaultTrans: 500
+    maxTrans: 1000
+    stepTrans: 50
+    unsafeMaxTrans: 300
+  avoid:
+    autoRestoreMs: 5000
+  fork:
+    extend:
+      min: 0
+      max: 640
+      step: 50
+      wait: 20
+      tolerance: 5
+  params:
+    editableSections:
+      - avoid
+      - laser
+      - laser_back
+      - laser_left
+      - laser_right
+      - laser_top
+      - robot
+    backupKeep: 50
 # 可观测：推理日志环形缓冲 + 车况变化观察（0=关闭观察轮询）
 trace:
   capacity: 500

@@ -1,5 +1,5 @@
 import { test, expect, Page } from '@playwright/test'
-import { pairViaUI, unlockSiteViaUI } from '../helpers'
+import { pairViaUI, unlockSiteViaUI, ensureSetupCompleted } from '../helpers'
 
 /** 从 from 节点输出 handle 拖到 to 节点输入 handle（vue-flow）。 */
 async function connectNodes(page: Page, fromIdx: number, toIdx: number) {
@@ -23,8 +23,9 @@ async function fillParam(page: Page, label: string, value: string) {
 
 test('用例5：任务流编辑器', async ({ page, request }) => {
   test.setTimeout(120_000)
+  await ensureSetupCompleted(request)
   await pairViaUI(page)
-  await unlockSiteViaUI(page)
+  await unlockSiteViaUI(page, request)
 
   // 清理历史同名流程（多次运行累积），避免加载下拉框歧义
   const token = await page.evaluate(() => localStorage.getItem('forkai_pair_token'))
@@ -41,7 +42,7 @@ test('用例5：任务流编辑器', async ({ page, request }) => {
   }
 
   // a. 进入编辑器
-  await page.getByRole('button', { name: '任务流编辑器' }).click()
+  await page.getByRole('link', { name: '任务流' }).click()
   await expect(page).toHaveURL(/#\/flow/)
 
   // b. 加三个节点并填参（面板按钮限定在左侧面板内，避免与画布节点角色冲突）

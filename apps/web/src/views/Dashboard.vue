@@ -106,4 +106,10 @@ const trace = useTraceStore()
   .hud-caption { left: 392px; right: 432px; }
   .hud-bottom { grid-template-columns: 1fr 600px; }
 }
+@media (max-width: 900px) {
+  .hud-left,
+  .hud-right,
+  .hud-caption { display: none; }
+  .hud-bottom { grid-template-columns: 1fr; height: auto; max-height: 46%; }
+}
 </style>

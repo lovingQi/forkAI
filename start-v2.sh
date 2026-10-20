@@ -31,5 +31,9 @@ echo "  mock-jarvis  :8080  http=$(curl -s -m 2 -o /dev/null -w '%{http_code}' h
 echo "  forkai-core  :19000 $(curl -s -m 2 http://127.0.0.1:19000/api/health)"
 echo
 echo "入口: http://127.0.0.1:19000/  (core 静态托管 apps/web/dist；前端热更新: npm run dev:web)"
+KIOSK="$ROOT/services/core/data/console/kiosk.token"
+if [ -f "$KIOSK" ]; then
+  echo "车载屏入口: http://127.0.0.1:19000/?kiosk=$(tr -d '[:space:]' < "$KIOSK")"
+fi
 echo "日志: $LOG/{mock,core}.log"
 echo "停止: pkill -f 'mock-jarvis/src/index.js'; pkill -f 'uvicorn app.main:app'"

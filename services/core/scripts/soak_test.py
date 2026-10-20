@@ -21,6 +21,9 @@ from pathlib import Path
 
 import httpx
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _site_helper import clear_site_via_kiosk
+
 CORE_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(CORE_ROOT))
 
@@ -55,6 +58,7 @@ async def get_pair_token(c: httpx.AsyncClient) -> str:
 
 async def ensure_site(c: httpx.AsyncClient, token: str) -> None:
     h = {"Authorization": f"Bearer {token}"}
+    await clear_site_via_kiosk(c)
     site = (await c.get(f"{BASE}/api/site", headers=h)).json()
     un = await c.post(f"{BASE}/api/site/unlock", headers=h, json={"code": site["code"]})
     if un.status_code == 409:

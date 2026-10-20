@@ -16,6 +16,9 @@ from pathlib import Path
 import httpx
 import websockets
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _site_helper import clear_site_via_kiosk
+
 CORE_ROOT = Path(__file__).resolve().parent.parent
 REPO_ROOT = CORE_ROOT.parent.parent
 BASE = "http://127.0.0.1:19000"
@@ -175,6 +178,7 @@ async def main() -> int:
 
         # ---- 7. 急停退出现场 ----
         site = (await c.get(f"{BASE}/api/site", headers=h)).json()
+        await clear_site_via_kiosk(c)
         await c.post(f"{BASE}/api/site/unlock", headers=h, json={"code": site["code"], "force": True})
         before = len(EVENTS)
         await c.post(f"{MOCK}/api/debug/state", json={"alarm": "estop"})

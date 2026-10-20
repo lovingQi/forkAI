@@ -50,6 +50,12 @@ class AlarmMonitor:
                     # 上升沿：强制退出现场（仅当存在现场锁时才有意义，end_site 幂等）
                     sessions.end_site("", force=True)
                     bus.broadcast("site_changed", {"holderClientId": None, "reason": "estop"})
+                    console = getattr(self._app.state, "console", None)
+                    if console is not None:
+                        try:
+                            await console.on_alarm_estop()
+                        except Exception as e:
+                            print(f"[forkai-core] 急停联动控制台失败: {e}", flush=True)
                     text = render("alarm_estop_exit")
                     spoken = {}
                     try:

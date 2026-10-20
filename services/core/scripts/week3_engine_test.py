@@ -20,6 +20,9 @@ import sys
 from pathlib import Path
 
 import httpx
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _site_helper import clear_site_via_kiosk
 import websockets
 
 CORE_ROOT = Path(__file__).resolve().parent.parent
@@ -62,6 +65,7 @@ async def main() -> int:
         code = (await c.post(f"{BASE}/api/pair/start")).json()["code"]
         token = (await c.post(f"{BASE}/api/pair/confirm", json={"code": code})).json()["pairToken"]
         h = {"Authorization": f"Bearer {token}"}
+        await clear_site_via_kiosk(c)
         site = (await c.get(f"{BASE}/api/site", headers=h)).json()
         un = await c.post(f"{BASE}/api/site/unlock", headers=h, json={"code": site["code"]})
         if un.status_code == 409:

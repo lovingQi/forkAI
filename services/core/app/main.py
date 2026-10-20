@@ -13,9 +13,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .api import routes_flows, routes_pair, routes_robot, routes_site, routes_trace, routes_voice, ws_proxy
-from .api.deps import UnpairedError
+from .api import routes_console, routes_flows, routes_pair, routes_robot, routes_site, routes_trace, routes_voice, ws_proxy
+from .api.deps import LocalOnlyError, UnpairedError
 from .config import load_config
+from .console.controller import ConsoleController
+from .console.params_service import ParamsService
+from .console.store import ConsoleStore
 from .events import EventBus
 from .executor import IntentExecutor
 from .jarvis.client import JarvisClient
@@ -72,6 +75,9 @@ flow_engine = FlowEngine(cfg, flow_store, jarvis, bus, tracer=tracer)
 executor.set_flow_engine(flow_engine)
 executor.set_flow_store(flow_store)
 state_observer = StateObserver(cfg, jarvis, tracer)
+console_store = ConsoleStore(cfg)
+console = ConsoleController(cfg, sessions, jarvis, watchdog, bus, flow_engine)
+params_svc = ParamsService(cfg, jarvis, console_store, sessions)
 
 app.state.cfg = cfg
 app.state.bus = bus
@@ -83,12 +89,20 @@ app.state.llm = llm
 app.state.flow_store = flow_store
 app.state.flow_engine = flow_engine
 app.state.tracer = tracer
+app.state.console_store = console_store
+app.state.console = console
+app.state.params_svc = params_svc
 attach_prewarm_state(app)
 
 
 @app.exception_handler(UnpairedError)
 async def _unpaired_handler(_request, _exc):
     return JSONResponse(status_code=401, content={"succeed": False, "error": "unpaired"})
+
+
+@app.exception_handler(LocalOnlyError)
+async def _local_only_handler(_request, _exc):
+    return JSONResponse(status_code=403, content={"succeed": False, "error": "not_local"})
 
 
 @app.get("/api/health")
@@ -102,6 +116,7 @@ app.include_router(routes_voice.router)
 app.include_router(routes_robot.router)
 app.include_router(routes_flows.router)
 app.include_router(routes_trace.router)
+app.include_router(routes_console.router)
 app.include_router(ws_proxy.router)
 
 # 静态托管前端构建产物（对齐 index.ts express.static）
@@ -123,6 +138,7 @@ async def _startup_log():
         f"vehicle={cfg['vehicleId']} jarvis={cfg['jarvis']['baseUrl']}"
     )
     await alarm_monitor.start()
+    await console.on_startup()
     await state_observer.start()
     await flow_engine.restore_snapshot()
     tts_cfg = cfg.get("tts") or {}
@@ -133,6 +149,7 @@ async def _startup_log():
 @app.on_event("shutdown")
 async def _shutdown():
     await stop_prewarm(app)
+    await console.shutdown()
     await state_observer.stop()
     await alarm_monitor.stop()
     await flow_engine.shutdown()

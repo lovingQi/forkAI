@@ -1,9 +1,10 @@
 import { test, expect } from '@playwright/test'
-import { pairViaUI, unlockSiteViaUI } from '../helpers'
+import { pairViaUI, unlockSiteViaUI, ensureSetupCompleted } from '../helpers'
 
-test('用例3：文本指令链路', async ({ page }) => {
+test('用例3：文本指令链路', async ({ page, request }) => {
+  await ensureSetupCompleted(request)
   await pairViaUI(page)
-  await unlockSiteViaUI(page)
+  await unlockSiteViaUI(page, request)
 
   const input = page.getByPlaceholder('例如：前进 / 玖物，玖物 / 电量多少')
   await input.fill('前进')

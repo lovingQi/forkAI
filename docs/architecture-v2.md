@@ -73,6 +73,12 @@
 | session.manager | app/session/manager.py | 配对码/Token/现场锁/唤醒武装（TTL 管理） |
 | events | app/events.py | /ws/events 客户端集合 + broadcast |
 | api | app/api/*.py | REST/WS 端点（见 api-v2.md） |
+| console.store | app/console/store.py | 向导标记、车载屏口令、参数备份与修改日志 |
+| console.controller | app/console/controller.py | 按住行驶、避障开关、货叉步进、软件急停 |
+| console.params_service | app/console/params_service.py | 参数说明、整段下发、备份恢复 |
+| console.net / selfcheck | app/console/net.py、selfcheck.py | 二维码主机地址、开机自检 |
+
+车载屏走 `POST /api/pair/local`（本机回环地址 + kiosk 口令）免码进入。手机扫描 join-ticket 里的地址，`POST /api/pair/join` 一次完成配对并取得现场锁。遥控、货叉和改参数仍要现场锁；软件急停任意已配对终端都能触发。
 
 ## 3. 关键链路时序
 

@@ -65,6 +65,17 @@ class JarvisClient:
     async def get_params(self):
         return await self._get("/api/params", "params")
 
+    async def post_config(self, data: dict):
+        """POST /api/config。车端 avoid 段是整段覆盖，调用方需提交合并后的整段。"""
+        try:
+            res = await self._client.post(self._url("/api/config"), json=data or {})
+        except httpx.HTTPError as e:
+            raise JarvisError(str(e) or "jarvis config unreachable") from e
+        try:
+            return res.json()
+        except Exception:
+            return {}
+
     async def control(self, action: str, payload: dict | None = None):
         try:
             res = await self._client.post(

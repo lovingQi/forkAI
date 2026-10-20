@@ -13,7 +13,10 @@ import {
   voiceText
 } from '@/api/http'
 import { EventWs } from '@/api/ws'
+import { joinByTicket, pairLocal } from '@/api/console'
+import { useConsoleStore } from '@/stores/console'
 import { useTraceStore } from '@/stores/trace'
+import { ElMessage } from 'element-plus'
 
 function ttsEngineLabel(engine: string, hasAudio: boolean): string {
   if (!hasAudio || engine === 'mock') return '浏览器朗读'
@@ -161,10 +164,22 @@ export const useSessionStore = defineStore('session', {
         this.pushLog(`意图: ${this.lastIntent} ${msg.payload?.ok ? 'OK' : 'FAIL'}`)
       }
       if (msg.type === 'site_changed') {
+        const wasHolder = this.iAmHolder
         this.siteHolderId = msg.payload?.holderClientId || ''
         this.siteExpiresAt = msg.payload?.expiresAt || 0
-        this.iAmHolder = this.siteHolderId === this.clientId
+        this.iAmHolder = !!this.siteHolderId && this.siteHolderId === this.clientId
         this.pushLog(this.iAmHolder ? '已获得现场点动权' : '现场点动权变更')
+        if (wasHolder && !this.iAmHolder && msg.payload?.stolen) {
+          ElMessage.warning('控制权已被收回')
+        }
+      }
+      if (
+        msg.type === 'console_state' ||
+        msg.type === 'console_estop' ||
+        msg.type === 'join_consumed' ||
+        msg.type === 'setup_changed'
+      ) {
+        useConsoleStore().onEvent(msg)
       }
       if (msg.type === 'watchdog_stop') {
         this.pushLog('看门狗停车')
@@ -217,6 +232,28 @@ export const useSessionStore = defineStore('session', {
       return res
     },
 
+    async pairAsLocal(kioskToken: string) {
+      const res = await pairLocal(kioskToken)
+      setPairSession(res.pairToken, res.clientId)
+      this.paired = true
+      this.clientId = res.clientId
+      this.vehicleId = res.vehicleId
+      this.connectEvents()
+      await this.refreshSite()
+      return res
+    },
+
+    async pairByJoin(ticket: string) {
+      const res = await joinByTicket(ticket)
+      setPairSession(res.pairToken, res.clientId)
+      this.paired = true
+      this.clientId = res.clientId
+      this.vehicleId = res.vehicleId
+      this.connectEvents()
+      await this.refreshSite()
+      return res
+    },
+
     logout() {
       clearPairSession()
       this.paired = false
@@ -245,7 +282,7 @@ export const useSessionStore = defineStore('session', {
       }
     },
 
-    async doUnlock(opts: { code?: string; nonce?: string; force?: boolean }) {
+    async doUnlock(opts: { code?: string; nonce?: string; force?: boolean; local?: boolean }) {
       try {
         await unlockSite(opts)
         await this.refreshSite()

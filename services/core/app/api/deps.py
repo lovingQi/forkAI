@@ -10,6 +10,10 @@ class UnpairedError(Exception):
     pass
 
 
+class LocalOnlyError(Exception):
+    pass
+
+
 async def read_body(request: Request) -> dict:
     try:
         body = await request.json()
@@ -27,3 +31,10 @@ async def auth(request: Request) -> str:
     request.state.client_id = rec["clientId"]
     request.state.pair_token = token
     return rec["clientId"]
+
+
+async def require_local(request: Request) -> str:
+    client_id = await auth(request)
+    if not request.app.state.sessions.is_local(client_id):
+        raise LocalOnlyError()
+    return client_id

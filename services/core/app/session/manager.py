@@ -18,10 +18,13 @@ class SessionManager:
     def __init__(self, cfg: dict):
         self._cfg = cfg
         self._pair_pending = None  # {"code": str, "expiresAt": int} | None
-        self._tokens: dict[str, dict] = {}  # pairToken -> {"clientId","expiresAt"}
+        self._tokens: dict[str, dict] = {}  # pairToken -> {"clientId","expiresAt","local"}
         self._site = None  # {"siteSessionId","holderClientId","expiresAt"} | None
         self._site_nonce = str(uuid.uuid4())
         self._site_code = _gen_code()
+        self._join_ticket = None  # {"ticket","expiresAt"} | None
+        console = cfg.get("console") or {}
+        self._join_ttl = int(console.get("joinTicketTtlMs", 120000))
         self._wake_armed_until = 0
         self._wake_client_id = None
 
@@ -45,9 +48,58 @@ class SessionManager:
         client_id = str(uuid.uuid4())
         pair_token = str(uuid.uuid4())
         expires_at = now_ms() + self._cfg["pairTokenTtlMs"]
-        self._tokens[pair_token] = {"clientId": client_id, "expiresAt": expires_at}
+        self._tokens[pair_token] = {"clientId": client_id, "expiresAt": expires_at, "local": False}
         self._pair_pending = None
         return {"pairToken": pair_token, "expiresAt": expires_at, "clientId": client_id}
+
+    def _mint_token(self, local: bool) -> dict:
+        client_id = str(uuid.uuid4())
+        pair_token = str(uuid.uuid4())
+        expires_at = now_ms() + self._cfg["pairTokenTtlMs"]
+        self._tokens[pair_token] = {
+            "clientId": client_id,
+            "expiresAt": expires_at,
+            "local": bool(local),
+        }
+        return {"pairToken": pair_token, "expiresAt": expires_at, "clientId": client_id, "local": bool(local)}
+
+    def pair_local(self) -> dict:
+        """车载屏免码配对。"""
+        return self._mint_token(True)
+
+    def is_local(self, client_id: str) -> bool:
+        now = now_ms()
+        for rec in self._tokens.values():
+            if rec.get("clientId") == client_id and rec.get("expiresAt", 0) >= now and rec.get("local"):
+                return True
+        return False
+
+    def has_local_client(self) -> bool:
+        now = now_ms()
+        return any(rec.get("local") and rec.get("expiresAt", 0) >= now for rec in self._tokens.values())
+
+    def remote_force_allowed(self) -> bool:
+        """没有车载屏配对时，已配对终端可以抢占。有车载屏时仍只允许本屏，除非配置打开。"""
+        console = self._cfg.get("console") or {}
+        if console.get("allowRemoteForce"):
+            return True
+        return not self.has_local_client()
+
+    def issue_join_ticket(self) -> dict:
+        """同一时刻只有一张有效扫码凭证，新签发顶替旧的。"""
+        self._join_ticket = {
+            "ticket": secrets.token_urlsafe(24),
+            "expiresAt": now_ms() + self._join_ttl,
+        }
+        return dict(self._join_ticket)
+
+    def consume_join_ticket(self, ticket: str):
+        """核销一次性凭证。成功返回手机端（非车载屏）配对结果。"""
+        pending = self._join_ticket
+        if not pending or not ticket or pending["ticket"] != str(ticket) or pending["expiresAt"] < now_ms():
+            return None
+        self._join_ticket = None
+        return self._mint_token(False)
 
     def resolve_token(self, pair_token):
         if not pair_token:
@@ -78,11 +130,11 @@ class SessionManager:
         if self._site and self._site["expiresAt"] < now_ms():
             self._site = None
 
-    def unlock_site(self, client_id: str, nonce=None, code=None, force=False) -> dict:
+    def unlock_site(self, client_id: str, nonce=None, code=None, force=False, bypass_code=False) -> dict:
         self._ensure_site_valid()
         ok_nonce = bool(nonce) and nonce == self._site_nonce
         ok_code = bool(code) and code == self._site_code
-        if not ok_nonce and not ok_code:
+        if not bypass_code and not ok_nonce and not ok_code:
             return {"ok": False, "error": "invalid"}
 
         if self._site and self._site["holderClientId"] != client_id:

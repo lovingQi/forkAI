@@ -1,9 +1,10 @@
 import { test, expect } from '@playwright/test'
-import { pairViaUI, unlockSiteViaUI } from '../helpers'
+import { pairViaUI, unlockSiteViaUI, ensureSetupCompleted } from '../helpers'
 
 test('用例6：急停强制退出现场', async ({ page, request }) => {
+  await ensureSetupCompleted(request)
   await pairViaUI(page)
-  await unlockSiteViaUI(page)
+  await unlockSiteViaUI(page, request)
   await expect(page.getByText(/现场 \d+ 分钟/)).toBeVisible()
 
   try {

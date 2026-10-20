@@ -28,6 +28,7 @@ services/core/models/asr/sherpa-onnx-*/
 services/core/data/flows/*.json
 services/core/data/flows/.engine_state.json
 services/core/data/tts_cache/
+services/core/data/console/
 
 # forkAI V2: llama.cpp 源码树与编译产物
 services/llm-sidecar/bin/

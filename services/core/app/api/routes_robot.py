@@ -38,6 +38,8 @@ async def get_params(request: Request, _client_id: str = Depends(auth)):
 
 @router.post("/api/control/{action}")
 async def control(action: str, request: Request, client_id: str = Depends(auth)):
+    if action in ("motor", "safe"):
+        return JSONResponse(status_code=403, content={"succeed": False, "error": "use_console"})
     # drive requires site
     if action == "drive":
         if not request.app.state.sessions.has_site(client_id):

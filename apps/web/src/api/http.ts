@@ -100,7 +100,7 @@ export async function getSite() {
   }
 }
 
-export async function unlockSite(body: { nonce?: string; code?: string; force?: boolean }) {
+export async function unlockSite(body: { nonce?: string; code?: string; force?: boolean; local?: boolean }) {
   const { data } = await http.post('/site/unlock', body)
   return data
 }

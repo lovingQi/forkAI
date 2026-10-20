@@ -30,6 +30,95 @@ function loadMapData() {
 }
 loadMapData()
 
+let paramsInfo = {}
+let paramValues = {}
+function loadParams() {
+  try {
+    paramsInfo = JSON.parse(fs.readFileSync(path.join(__dirname, '../params/params_info.json'), 'utf8'))
+    paramValues = JSON.parse(fs.readFileSync(path.join(__dirname, '../params/values.json'), 'utf8'))
+    console.log(`【mock车】已加载参数段 ${Object.keys(paramValues).join(',')}`)
+  } catch (e) {
+    paramsInfo = {}
+    paramValues = {}
+    console.error(`【mock车】参数加载失败: ${e.message}`)
+  }
+}
+loadParams()
+
+function alarmOf() {
+  if (!state.motor) return 'estop'
+  return state.alarm
+}
+
+function forkInfo() {
+  const info = {
+    fork_height: state.fork_height,
+    sub_type: 2,
+    fork_up: 210,
+    fork_down: 0,
+    flap: true,
+    ctrl_flag: true
+  }
+  if (!state.omitForkDis) {
+    info.fork_cur_dis = state.fork_cur_dis
+    info.fork_max_dis = state.fork_max_dis
+  }
+  return info
+}
+
+function paramsPayload() {
+  const send = {}
+  for (const [section, vals] of Object.entries(paramValues)) {
+    const origin = paramsInfo[section] || {}
+    const sec = {}
+    for (const [parameter, def] of Object.entries(vals)) {
+      if (origin[parameter]) {
+        sec[parameter] = { ...origin[parameter], default: def }
+      } else {
+        let type = 'string'
+        if (typeof def === 'boolean') type = 'bool'
+        else if (typeof def === 'number') type = Number.isInteger(def) ? 'int' : 'double'
+        sec[parameter] = {
+          default: def,
+          desc: '',
+          desc_zh: '',
+          name: '',
+          name_zh: '',
+          ranges: [],
+          type
+        }
+      }
+    }
+    send[section] = sec
+  }
+  return { params: send }
+}
+
+function isMoving() {
+  if (state.mode !== 'Idle' && state.mode !== 'Stopped') return true
+  if (Math.abs(state.vel[0]) > 10 || Math.abs(state.vel[1]) > 10) return true
+  return false
+}
+
+function applyConfig(data) {
+  const cfg = data && data.data ? data.data : data || {}
+  if (isMoving()) {
+    for (const section of Object.keys(cfg)) {
+      if (section.startsWith('laser') || section === 'avoid' || section === 'robot') {
+        return { succeed: false, error: `robot is moving, cannot change safety config(${section})` }
+      }
+    }
+  }
+  for (const [section, incoming] of Object.entries(cfg)) {
+    if (!paramValues[section] || !incoming || typeof incoming !== 'object') {
+      return { succeed: false, error: `no found section(${section})` }
+    }
+    if (section === 'avoid') paramValues[section] = { ...incoming }
+    else Object.assign(paramValues[section], incoming)
+  }
+  return { succeed: true, error: '' }
+}
+
 // ---- 内存假车况（对齐真车 /api/state 语义，依据见各注释）----
 const state = {
   name: 'fork-01',
@@ -51,6 +140,9 @@ const state = {
   pose: [-11696, -624, 1.57],
   vel: [0, 0, 0],
   fork_height: 120,
+  fork_cur_dis: 0,
+  fork_max_dis: 640,
+  omitForkDis: false,
   speed: 20 // 内部用；真车 /api/state 无 speed 字段（不下发）
 }
 
@@ -60,7 +152,8 @@ const MODE_NAMES = {
   head: 'ModeHead',
   follow_back: 'ModeFollowBack', // JModeFollowBack.cpp:11
   get_pallet: 'ModeAutoGetPallet', // JModeAutoGetPallet.cpp:8
-  charge: 'ModeCharge' // JModeFltCharge.cpp:17
+  charge: 'ModeCharge', // JModeFltCharge.cpp:17
+  forkextend: 'ModeFockExtend'
 }
 
 // 真车 route 结束（成功/失败/中止相同）后 SetDefaultRICK：routes="TEMP_DEFAULT"、
@@ -499,6 +592,27 @@ function startForkSim(name, node) {
   }, 200)
 }
 
+/** 模拟货叉伸缩：每 200ms 向目标步进 10mm。 */
+function startForkExtendSim(name, node) {
+  const target = Number(node.pos || 0)
+  if (forkTimer) clearInterval(forkTimer)
+  routeBegin(name, 'forkextend')
+  state.substatus = `叉尺调整中 ${target}`
+  console.log(`【mock车】货叉伸缩 name=${name} 目标=${target}mm`)
+  forkTimer = setInterval(() => {
+    const diff = target - state.fork_cur_dis
+    if (Math.abs(diff) <= 10) {
+      state.fork_cur_dis = target
+      clearInterval(forkTimer)
+      forkTimer = null
+      routeEnd()
+      console.log(`【mock车】叉尺到位 ${target}mm`)
+    } else {
+      state.fork_cur_dis += Math.sign(diff) * 10
+    }
+  }, 200)
+}
+
 /** head/follow_back/get_pallet/charge 节点模拟。mock_fail:true → 无物理效果直接结束。 */
 function startTaskSim(name, node) {
   const cmd = node.cmd
@@ -537,10 +651,10 @@ function lowPayload() {
     ctrl_mode: state.ctrl_mode,
     safe: state.safe,
     motor: state.motor,
-    alarm: state.alarm,
+    alarm: alarmOf(),
     // 注意：真车 /api/state 无 speed 字段
     current_routes: currentRoutes,
-    fork_info: { fork_height: state.fork_height },
+    fork_info: forkInfo(),
     input: [],
     output: [],
     virtual: []
@@ -575,6 +689,7 @@ function handleControl(action, payload) {
   console.log(`【mock车】收到指令 action=${action} payload=${JSON.stringify(p)}`)
   switch (action) {
     case 'drive': {
+      if (!state.motor) break
       // 真车：trans=mm/s，rot=转向幅度，speed 恒定；mode 保持 Idle
       const trans = Number(p.trans || 0)
       const rot = Number(p.rot || 0)
@@ -604,6 +719,14 @@ function handleControl(action, payload) {
       state.vel = [0, 0, 0]
       state.charing = false
       break
+    case 'motor':
+      state.motor = !(p.flag === false || p.flag === 0)
+      if (!state.motor) state.alarm = 'estop'
+      else if (state.alarm === 'estop') state.alarm = 'normal'
+      break
+    case 'safe':
+      state.safe = !(p.flag === false || p.flag === 0)
+      break
     case 'idle':
       clearHeadTimer()
       stopDriveMotion()
@@ -629,11 +752,14 @@ function handleControl(action, payload) {
       const nodes = Object.values(content).filter((v) => v && typeof v === 'object' && v.cmd)
       const name = String(p.name || p.routes || action)
       const forkNode = nodes.find((n) => n.cmd === 'focklift')
+      const extendNode = nodes.find((n) => n.cmd === 'forkextend')
       const taskNode = nodes.find((n) =>
         ['head', 'follow_back', 'get_pallet', 'charge'].includes(n.cmd)
       )
       if (forkNode) {
         startForkSim(name, forkNode)
+      } else if (extendNode) {
+        startForkExtendSim(name, extendNode)
       } else if (taskNode) {
         startTaskSim(name, taskNode)
       } else {
@@ -673,7 +799,22 @@ const server = http.createServer((req, res) => {
   if (req.method === 'GET' && path === '/api/map') {
     return sendJson(res, 200, { name: state.map_name, data: mapData })
   }
-  if (req.method === 'GET' && path === '/api/params') return sendJson(res, 200, { params: {} })
+  if (req.method === 'GET' && path === '/api/params') return sendJson(res, 200, paramsPayload())
+
+  if (req.method === 'POST' && path === '/api/config') {
+    let body = ''
+    req.on('data', (c) => (body += c))
+    req.on('end', () => {
+      let payload = {}
+      try {
+        payload = body ? JSON.parse(body) : {}
+      } catch {
+        /* ignore */
+      }
+      sendJson(res, 200, applyConfig(payload))
+    })
+    return
+  }
 
   // 调试端点（仅供联调测试）：直接改内存状态，模拟低电量/告警/充电等场景
   if (req.method === 'POST' && path === '/api/debug/state') {
@@ -689,6 +830,10 @@ const server = http.createServer((req, res) => {
       if (p.battery !== undefined) state.battery = Number(p.battery)
       if (p.alarm !== undefined) state.alarm = String(p.alarm)
       if (p.charing !== undefined) state.charing = !!p.charing
+      if (p.motor !== undefined) state.motor = !!p.motor
+      if (p.omitForkDis !== undefined) state.omitForkDis = !!p.omitForkDis
+      if (p.fork_cur_dis !== undefined) state.fork_cur_dis = Number(p.fork_cur_dis)
+      if (p.fork_height !== undefined) state.fork_height = Number(p.fork_height)
       console.log(`【mock车】debug/state battery=${state.battery} alarm=${state.alarm} charing=${state.charing}`)
       sendJson(res, 200, {
         succeed: true,

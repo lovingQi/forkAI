@@ -21,11 +21,19 @@ build_route(task_type, params) 通用入口；缺 required 参数抛 ValueError�
 from ..config import now_ms
 
 
-def build_fork_route(pos: int, wait: int, tolerance: int) -> dict:
-    """单节点货叉升降路线。"""
+def build_fork_route(pos: int, wait: int, tolerance: int, prefix: str = "voice") -> dict:
+    """单节点货叉升降路线。prefix 默认 voice，控制台调用传 console。"""
     return {
-        "name": f"voice_focklift_{now_ms()}",
+        "name": f"{prefix}_focklift_{now_ms()}",
         "content": {"a": {"cmd": "focklift", "pos": int(pos), "wait": int(wait), "tolerance": int(tolerance)}},
+    }
+
+
+def build_fork_extend_route(pos: int, wait: int, tolerance: int) -> dict:
+    """单节点货叉伸缩路线（控制台）。"""
+    return {
+        "name": f"console_forkextend_{now_ms()}",
+        "content": {"a": {"cmd": "forkextend", "pos": int(pos), "wait": int(wait), "tolerance": int(tolerance)}},
     }
 
 

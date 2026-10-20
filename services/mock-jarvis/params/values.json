@@ -1,0 +1,93 @@
+{
+  "avoid": {
+    "clearance_front_max": 3000,
+    "clearance_front_min": 50,
+    "clearance_back_max": 500,
+    "clearance_back_min": 50,
+    "clearance_side_max": 200,
+    "clearance_side_min": 20,
+    "clearance_fast_vel": 700,
+    "clearance_slow_vel": 100,
+    "enable_sonar": true,
+    "enable_sonar_back": true,
+    "enable_sonar_front": false,
+    "use_estop": true,
+    "use_forbidden": true,
+    "estop_min_vel_full": 300,
+    "estop_min_vel_empty": 500,
+    "ignore_from_when_backward": 50,
+    "ignore_from_when_forward": -50
+  },
+  "laser": {
+    "pos_x": 0,
+    "pos_y": 0,
+    "pos_th": 0,
+    "angle_min": -180,
+    "angle_max": 180,
+    "angle_ignore": "-135~-120,120~135",
+    "range_min": 0.12,
+    "range_max": 40,
+    "flipped": false
+  },
+  "laser_back": {
+    "pos_x": -361,
+    "pos_y": 16,
+    "pos_th": 182.2,
+    "angle_min": -109.669,
+    "angle_max": 109.97,
+    "angle_ignore": "-135~-100,100~135",
+    "range_min": 0.02,
+    "range_max": 50.0,
+    "flipped": false
+  },
+  "laser_left": {
+    "pos_x": 0,
+    "pos_y": 460,
+    "pos_th": 0,
+    "angle_min": -90,
+    "angle_max": 90,
+    "angle_ignore": "",
+    "range_min": 0.05,
+    "range_max": 4,
+    "flipped": false
+  },
+  "laser_right": {
+    "pos_x": 0,
+    "pos_y": -460,
+    "pos_th": 0,
+    "angle_min": -90,
+    "angle_max": 90,
+    "angle_ignore": "",
+    "range_min": 0.05,
+    "range_max": 4,
+    "flipped": false
+  },
+  "laser_top": {
+    "pos_x": -361,
+    "pos_y": 16,
+    "pos_th": 182.2,
+    "angle_min": -109.669,
+    "angle_max": 109.97,
+    "angle_ignore": "-135~-100,100~135",
+    "range_min": 0.02,
+    "range_max": 50.0,
+    "flipped": false
+  },
+  "robot": {
+    "has_backLaser": false,
+    "has_sideLaser": false,
+    "has_topLaser": false,
+    "has_downSlopgLaser": false,
+    "size_width": 660,
+    "size_length": 890,
+    "size_length_front": 445,
+    "size_length_rear": 445,
+    "speed_trans_max": 1500,
+    "speed_rotate_max": 90
+  },
+  "nav": {
+    "limit_trans_max_vel": 1200,
+    "use_estop": true,
+    "map_resolution": 20
+  }
+}

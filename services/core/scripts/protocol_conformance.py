@@ -20,6 +20,9 @@ from pathlib import Path
 
 import httpx
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _site_helper import clear_site_via_kiosk
+
 CORE_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(CORE_ROOT))
 
@@ -76,14 +79,45 @@ async def test_a() -> None:
           f"path={path} body_keys={sorted(body.keys())}")
 
 
+async def test_ef() -> None:
+    from app.jarvis.routes_builder import build_fork_extend_route, build_fork_route
+
+    route = build_fork_extend_route(100, 20, 5)
+    node = route["content"]["a"]
+    ok = (
+        str(route["name"]).startswith("console_forkextend_")
+        and node == {"cmd": "forkextend", "pos": 100, "wait": 20, "tolerance": 5}
+    )
+    check("e. forkextend route 结构", ok, str(route))
+    voice = build_fork_route(150, 20, 20)
+    check("e2. focklift 默认前缀仍是 voice", str(voice["name"]).startswith("voice_focklift_"), voice["name"])
+
+    section = {"clearance_front_max": 3000, "clearance_front_min": 50, "enable_sonar": True}
+    srv = HTTPServer(("127.0.0.1", 0), _Stub)
+    port = srv.server_address[1]
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    from app.jarvis.client import JarvisClient
+
+    client = JarvisClient({"jarvis": {"baseUrl": f"http://127.0.0.1:{port}"}})
+    await client.post_config({"avoid": section})
+    await client.close()
+    srv.shutdown()
+    path = _captured.get("path", "")
+    body = _captured.get("body", {})
+    ok = path == "/api/config" and body.get("avoid") == section
+    check("f. post_config→/api/config 且整段下发", ok, f"path={path} avoid={body.get('avoid')}")
+
+
 async def main() -> int:
     await test_a()
+    await test_ef()
 
     async with httpx.AsyncClient(timeout=30) as c:
         # 配对 + 解锁
         code = (await c.post(f"{BASE}/api/pair/start")).json()["code"]
         token = (await c.post(f"{BASE}/api/pair/confirm", json={"code": code})).json()["pairToken"]
         h = {"Authorization": f"Bearer {token}"}
+        await clear_site_via_kiosk(c)
         site = (await c.get(f"{BASE}/api/site", headers=h)).json()
         un = await c.post(f"{BASE}/api/site/unlock", headers=h, json={"code": site["code"]})
         if un.status_code == 409:

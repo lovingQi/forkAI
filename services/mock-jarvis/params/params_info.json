@@ -1,0 +1,340 @@
+{
+	"avoid": {
+		"clearance_front_max": {
+			"name": "clearance_front_max",
+			"name_zh": "前方避障最大距离",
+			"desc": "Max distance in front of the robot to avoid obstacles; Unit(mm)",
+			"desc_zh": "机器人前方避障的最大距离；单位(mm)",
+			"type": "int",
+			"ranges": [0, 10000]
+		},
+		"clearance_front_min": {
+			"name": "clearance_front_min",
+			"name_zh": "前方避障最小距离",
+			"desc": "Min distance in front of the robot to avoid obstacles; Unit(mm)",
+			"desc_zh": "机器人前方避障的最小距离；单位(mm)",
+			"type": "int",
+			"ranges": [0, 10000]
+		},
+		"clearance_back_max": {
+			"name": "clearance_back_max",
+			"name_zh": "后方避障最大距离",
+			"desc": "Max distance behind the robot to avoid obstacles; Unit(mm)",
+			"desc_zh": "机器人后方避障的最大距离；单位(mm)",
+			"type": "int",
+			"ranges": [0, 10000]
+		},
+		"clearance_back_min": {
+			"name": "clearance_back_min",
+			"name_zh": "后方避障最小距离",
+			"desc": "Min distance behind the robot to avoid obstacles; Unit(mm)",
+			"desc_zh": "机器人后方避障的最小距离；单位(mm)",
+			"type": "int",
+			"ranges": [0, 10000]
+		},
+		"clearance_side_max": {
+			"name": "clearance_side_max",
+			"name_zh": "侧方避障最大距离",
+			"desc": "Max distance on the side of the robot to avoid obstacles; Unit(mm)",
+			"desc_zh": "机器人侧方避障的最大距离；单位(mm)",
+			"type": "int",
+			"ranges": [0, 5000]
+		},
+		"clearance_side_min": {
+			"name": "clearance_side_min",
+			"name_zh": "侧方避障最小距离",
+			"desc": "Min distance on the side of the robot to avoid obstacles; Unit(mm)",
+			"desc_zh": "机器人侧方避障的最小距离；单位(mm)",
+			"type": "int",
+			"ranges": [0, 5000]
+		},
+		"clearance_fast_vel": {
+			"name": "clearance_fast_vel",
+			"name_zh": "高速避障速度阈值",
+			"desc": "Velocity threshold to use the max clearance; Unit(mm/s)",
+			"desc_zh": "使用最大避障距离的速度阈值；单位(mm/s)",
+			"type": "int",
+			"ranges": [0, 3000]
+		},
+		"clearance_slow_vel": {
+			"name": "clearance_slow_vel",
+			"name_zh": "低速避障速度阈值",
+			"desc": "Velocity threshold to use the min clearance; Unit(mm/s)",
+			"desc_zh": "使用最小避障距离的速度阈值；单位(mm/s)",
+			"type": "int",
+			"ranges": [0, 3000]
+		},
+		"enable_sonar": {
+			"name": "enable_sonar",
+			"name_zh": "启用超声避障",
+			"desc": "Enable sonar for obstacle avoidance",
+			"desc_zh": "是否启用超声波进行避障",
+			"type": "bool",
+			"ranges": []
+		},
+		"enable_sonar_back": {
+			"name": "enable_sonar_back",
+			"name_zh": "启用后向超声",
+			"desc": "Enable back sonar for obstacle avoidance",
+			"desc_zh": "是否启用后向超声波避障",
+			"type": "bool",
+			"ranges": []
+		},
+		"enable_sonar_front": {
+			"name": "enable_sonar_front",
+			"name_zh": "启用前向超声",
+			"desc": "Enable front sonar for obstacle avoidance",
+			"desc_zh": "是否启用前向超声波避障",
+			"type": "bool",
+			"ranges": []
+		},
+		"use_estop": {
+			"name": "use_estop",
+			"name_zh": "启用急停区",
+			"desc": "Enable emergency stop zone",
+			"desc_zh": "是否启用急停保护区",
+			"type": "bool",
+			"ranges": []
+		},
+		"use_forbidden": {
+			"name": "use_forbidden",
+			"name_zh": "启用禁行区",
+			"desc": "Enable forbidden zone avoidance",
+			"desc_zh": "是否启用禁行区避障",
+			"type": "bool",
+			"ranges": []
+		},
+		"estop_min_vel_full": {
+			"name": "estop_min_vel_full",
+			"name_zh": "满载急停最小速度",
+			"desc": "Min velocity for estop when loaded; Unit(mm/s)",
+			"desc_zh": "满载时触发急停的最小速度；单位(mm/s)",
+			"type": "int",
+			"ranges": [0, 3000]
+		},
+		"estop_min_vel_empty": {
+			"name": "estop_min_vel_empty",
+			"name_zh": "空载急停最小速度",
+			"desc": "Min velocity for estop when empty; Unit(mm/s)",
+			"desc_zh": "空载时触发急停的最小速度；单位(mm/s)",
+			"type": "int",
+			"ranges": [0, 3000]
+		},
+		"ignore_from_when_backward": {
+			"name": "ignore_from_when_backward",
+			"name_zh": "后退时忽略起点",
+			"desc": "Ignore obstacle points from this offset when backward; Unit(mm)",
+			"desc_zh": "后退时从该偏移开始忽略障碍点；单位(mm)",
+			"type": "int",
+			"ranges": [-2000, 2000]
+		},
+		"ignore_from_when_forward": {
+			"name": "ignore_from_when_forward",
+			"name_zh": "前进时忽略起点",
+			"desc": "Ignore obstacle points from this offset when forward; Unit(mm)",
+			"desc_zh": "前进时从该偏移开始忽略障碍点；单位(mm)",
+			"type": "int",
+			"ranges": [-2000, 2000]
+		}
+	},
+	"laser": {
+		"pos_x": {
+			"name": "pos_x",
+			"name_zh": "安装位置 X",
+			"desc": "Laser mount position X; Unit(mm)",
+			"desc_zh": "激光安装位置 X；单位(mm)",
+			"type": "int",
+			"ranges": [-3000, 3000]
+		},
+		"pos_y": {
+			"name": "pos_y",
+			"name_zh": "安装位置 Y",
+			"desc": "Laser mount position Y; Unit(mm)",
+			"desc_zh": "激光安装位置 Y；单位(mm)",
+			"type": "int",
+			"ranges": [-3000, 3000]
+		},
+		"pos_th": {
+			"name": "pos_th",
+			"name_zh": "安装角度",
+			"desc": "Laser mount angle; Unit(deg)",
+			"desc_zh": "激光安装角度；单位(度)",
+			"type": "int",
+			"ranges": [-180, 180]
+		},
+		"angle_min": {
+			"name": "angle_min",
+			"name_zh": "最小角度",
+			"desc": "Laser min scan angle; Unit(deg)",
+			"desc_zh": "激光扫描最小角度；单位(度)",
+			"type": "int",
+			"ranges": [-180, 180]
+		},
+		"angle_max": {
+			"name": "angle_max",
+			"name_zh": "最大角度",
+			"desc": "Laser max scan angle; Unit(deg)",
+			"desc_zh": "激光扫描最大角度；单位(度)",
+			"type": "int",
+			"ranges": [-180, 180]
+		},
+		"angle_ignore": {
+			"name": "angle_ignore",
+			"name_zh": "忽略角度区间",
+			"desc": "Ignored angle ranges, e.g. '-135~-120,120~135'",
+			"desc_zh": "忽略的角度区间，例如 '-135~-120,120~135'",
+			"type": "string",
+			"ranges": []
+		},
+		"range_min": {
+			"name": "range_min",
+			"name_zh": "最小测距",
+			"desc": "Laser min range; Unit(m)",
+			"desc_zh": "激光最小测距；单位(m)",
+			"type": "double",
+			"ranges": [0, 1]
+		},
+		"range_max": {
+			"name": "range_max",
+			"name_zh": "最大测距",
+			"desc": "Laser max range; Unit(m)",
+			"desc_zh": "激光最大测距；单位(m)",
+			"type": "double",
+			"ranges": [0, 100]
+		},
+		"flipped": {
+			"name": "flipped",
+			"name_zh": "是否翻转",
+			"desc": "Whether the laser is mounted flipped",
+			"desc_zh": "激光是否倒装翻转",
+			"type": "bool",
+			"ranges": []
+		}
+	},
+	"laser_back": {
+		"pos_x": {"name": "pos_x", "name_zh": "后激光位置 X", "desc": "Back laser position X; Unit(mm)", "desc_zh": "后激光安装位置 X；单位(mm)", "type": "int", "ranges": [-3000, 3000]},
+		"pos_y": {"name": "pos_y", "name_zh": "后激光位置 Y", "desc": "Back laser position Y; Unit(mm)", "desc_zh": "后激光安装位置 Y；单位(mm)", "type": "int", "ranges": [-3000, 3000]},
+		"pos_th": {"name": "pos_th", "name_zh": "后激光角度", "desc": "Back laser angle; Unit(deg)", "desc_zh": "后激光安装角度；单位(度)", "type": "int", "ranges": [-180, 180]},
+		"angle_min": {"name": "angle_min", "name_zh": "最小角度", "desc": "Min scan angle; Unit(deg)", "desc_zh": "扫描最小角度；单位(度)", "type": "int", "ranges": [-180, 180]},
+		"angle_max": {"name": "angle_max", "name_zh": "最大角度", "desc": "Max scan angle; Unit(deg)", "desc_zh": "扫描最大角度；单位(度)", "type": "int", "ranges": [-180, 180]},
+		"angle_ignore": {"name": "angle_ignore", "name_zh": "忽略角度区间", "desc": "Ignored angle ranges", "desc_zh": "忽略的角度区间", "type": "string", "ranges": []},
+		"range_min": {"name": "range_min", "name_zh": "最小测距", "desc": "Min range; Unit(m)", "desc_zh": "最小测距；单位(m)", "type": "double", "ranges": [0, 1]},
+		"range_max": {"name": "range_max", "name_zh": "最大测距", "desc": "Max range; Unit(m)", "desc_zh": "最大测距；单位(m)", "type": "double", "ranges": [0, 100]},
+		"flipped": {"name": "flipped", "name_zh": "是否翻转", "desc": "Mounted flipped", "desc_zh": "是否倒装翻转", "type": "bool", "ranges": []}
+	},
+	"laser_left": {
+		"pos_x": {"name": "pos_x", "name_zh": "左激光位置 X", "desc": "Left laser position X; Unit(mm)", "desc_zh": "左激光安装位置 X；单位(mm)", "type": "int", "ranges": [-3000, 3000]},
+		"pos_y": {"name": "pos_y", "name_zh": "左激光位置 Y", "desc": "Left laser position Y; Unit(mm)", "desc_zh": "左激光安装位置 Y；单位(mm)", "type": "int", "ranges": [-3000, 3000]},
+		"pos_th": {"name": "pos_th", "name_zh": "左激光角度", "desc": "Left laser angle; Unit(deg)", "desc_zh": "左激光安装角度；单位(度)", "type": "int", "ranges": [-180, 180]},
+		"angle_min": {"name": "angle_min", "name_zh": "最小角度", "desc": "Min scan angle; Unit(deg)", "desc_zh": "扫描最小角度；单位(度)", "type": "int", "ranges": [-180, 180]},
+		"angle_max": {"name": "angle_max", "name_zh": "最大角度", "desc": "Max scan angle; Unit(deg)", "desc_zh": "扫描最大角度；单位(度)", "type": "int", "ranges": [-180, 180]},
+		"angle_ignore": {"name": "angle_ignore", "name_zh": "忽略角度区间", "desc": "Ignored angle ranges", "desc_zh": "忽略的角度区间", "type": "string", "ranges": []},
+		"range_min": {"name": "range_min", "name_zh": "最小测距", "desc": "Min range; Unit(m)", "desc_zh": "最小测距；单位(m)", "type": "double", "ranges": [0, 1]},
+		"range_max": {"name": "range_max", "name_zh": "最大测距", "desc": "Max range; Unit(m)", "desc_zh": "最大测距；单位(m)", "type": "double", "ranges": [0, 100]},
+		"flipped": {"name": "flipped", "name_zh": "是否翻转", "desc": "Mounted flipped", "desc_zh": "是否倒装翻转", "type": "bool", "ranges": []}
+	},
+	"laser_right": {
+		"pos_x": {"name": "pos_x", "name_zh": "右激光位置 X", "desc": "Right laser position X; Unit(mm)", "desc_zh": "右激光安装位置 X；单位(mm)", "type": "int", "ranges": [-3000, 3000]},
+		"pos_y": {"name": "pos_y", "name_zh": "右激光位置 Y", "desc": "Right laser position Y; Unit(mm)", "desc_zh": "右激光安装位置 Y；单位(mm)", "type": "int", "ranges": [-3000, 3000]},
+		"pos_th": {"name": "pos_th", "name_zh": "右激光角度", "desc": "Right laser angle; Unit(deg)", "desc_zh": "右激光安装角度；单位(度)", "type": "int", "ranges": [-180, 180]},
+		"angle_min": {"name": "angle_min", "name_zh": "最小角度", "desc": "Min scan angle; Unit(deg)", "desc_zh": "扫描最小角度；单位(度)", "type": "int", "ranges": [-180, 180]},
+		"angle_max": {"name": "angle_max", "name_zh": "最大角度", "desc": "Max scan angle; Unit(deg)", "desc_zh": "扫描最大角度；单位(度)", "type": "int", "ranges": [-180, 180]},
+		"angle_ignore": {"name": "angle_ignore", "name_zh": "忽略角度区间", "desc": "Ignored angle ranges", "desc_zh": "忽略的角度区间", "type": "string", "ranges": []},
+		"range_min": {"name": "range_min", "name_zh": "最小测距", "desc": "Min range; Unit(m)", "desc_zh": "最小测距；单位(m)", "type": "double", "ranges": [0, 1]},
+		"range_max": {"name": "range_max", "name_zh": "最大测距", "desc": "Max range; Unit(m)", "desc_zh": "最大测距；单位(m)", "type": "double", "ranges": [0, 100]},
+		"flipped": {"name": "flipped", "name_zh": "是否翻转", "desc": "Mounted flipped", "desc_zh": "是否倒装翻转", "type": "bool", "ranges": []}
+	},
+	"laser_top": {
+		"pos_x": {"name": "pos_x", "name_zh": "顶激光位置 X", "desc": "Top laser position X; Unit(mm)", "desc_zh": "顶激光安装位置 X；单位(mm)", "type": "int", "ranges": [-3000, 3000]},
+		"pos_y": {"name": "pos_y", "name_zh": "顶激光位置 Y", "desc": "Top laser position Y; Unit(mm)", "desc_zh": "顶激光安装位置 Y；单位(mm)", "type": "int", "ranges": [-3000, 3000]},
+		"pos_th": {"name": "pos_th", "name_zh": "顶激光角度", "desc": "Top laser angle; Unit(deg)", "desc_zh": "顶激光安装角度；单位(度)", "type": "int", "ranges": [-180, 180]},
+		"angle_min": {"name": "angle_min", "name_zh": "最小角度", "desc": "Min scan angle; Unit(deg)", "desc_zh": "扫描最小角度；单位(度)", "type": "int", "ranges": [-180, 180]},
+		"angle_max": {"name": "angle_max", "name_zh": "最大角度", "desc": "Max scan angle; Unit(deg)", "desc_zh": "扫描最大角度；单位(度)", "type": "int", "ranges": [-180, 180]},
+		"angle_ignore": {"name": "angle_ignore", "name_zh": "忽略角度区间", "desc": "Ignored angle ranges", "desc_zh": "忽略的角度区间", "type": "string", "ranges": []},
+		"range_min": {"name": "range_min", "name_zh": "最小测距", "desc": "Min range; Unit(m)", "desc_zh": "最小测距；单位(m)", "type": "double", "ranges": [0, 1]},
+		"range_max": {"name": "range_max", "name_zh": "最大测距", "desc": "Max range; Unit(m)", "desc_zh": "最大测距；单位(m)", "type": "double", "ranges": [0, 100]},
+		"flipped": {"name": "flipped", "name_zh": "是否翻转", "desc": "Mounted flipped", "desc_zh": "是否倒装翻转", "type": "bool", "ranges": []}
+	},
+	"robot": {
+		"has_backLaser": {
+			"name": "has_backLaser",
+			"name_zh": "启用后激光",
+			"desc": "Enable back laser",
+			"desc_zh": "是否启用后向激光",
+			"type": "bool",
+			"ranges": []
+		},
+		"has_sideLaser": {
+			"name": "has_sideLaser",
+			"name_zh": "启用侧激光",
+			"desc": "Enable side laser",
+			"desc_zh": "是否启用侧向激光",
+			"type": "bool",
+			"ranges": []
+		},
+		"has_topLaser": {
+			"name": "has_topLaser",
+			"name_zh": "启用顶激光",
+			"desc": "Enable top laser",
+			"desc_zh": "是否启用顶部激光",
+			"type": "bool",
+			"ranges": []
+		},
+		"has_downSlopgLaser": {
+			"name": "has_downSlopgLaser",
+			"name_zh": "启用下坡激光",
+			"desc": "Enable down-slope laser",
+			"desc_zh": "是否启用下坡检测激光",
+			"type": "bool",
+			"ranges": []
+		},
+		"size_width": {
+			"name": "size_width",
+			"name_zh": "车体宽度",
+			"desc": "Robot body width; Unit(mm)",
+			"desc_zh": "车体宽度；单位(mm)",
+			"type": "int",
+			"ranges": [0, 5000]
+		},
+		"size_length": {
+			"name": "size_length",
+			"name_zh": "车体长度",
+			"desc": "Robot body length; Unit(mm)",
+			"desc_zh": "车体长度；单位(mm)",
+			"type": "int",
+			"ranges": [0, 5000]
+		},
+		"size_length_front": {
+			"name": "size_length_front",
+			"name_zh": "车体前长",
+			"desc": "Robot length from center to front; Unit(mm)",
+			"desc_zh": "车体中心到前端长度；单位(mm)",
+			"type": "int",
+			"ranges": [0, 5000]
+		},
+		"size_length_rear": {
+			"name": "size_length_rear",
+			"name_zh": "车体后长",
+			"desc": "Robot length from center to rear; Unit(mm)",
+			"desc_zh": "车体中心到后端长度；单位(mm)",
+			"type": "int",
+			"ranges": [0, 5000]
+		},
+		"speed_trans_max": {
+			"name": "speed_trans_max",
+			"name_zh": "最大平移速度",
+			"desc": "Max translational speed; Unit(mm/s)",
+			"desc_zh": "最大平移速度；单位(mm/s)",
+			"type": "int",
+			"ranges": [0, 3000]
+		},
+		"speed_rotate_max": {
+			"name": "speed_rotate_max",
+			"name_zh": "最大旋转速度",
+			"desc": "Max rotational speed; Unit(deg/s)",
+			"desc_zh": "最大旋转速度；单位(度/s)",
+			"type": "int",
+			"ranges": [0, 180]
+		}
+	}
+}

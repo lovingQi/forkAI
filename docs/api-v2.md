@@ -171,3 +171,43 @@
 | UNKNOWN | 其余 | fail_unknown 话术 |
 
 所有意图在执行前按类别检查：运动级（MOTION/FORK/TASK）需现场锁 + cabin 需唤醒武装 + 任务流运行中拒绝；STOP/QUERY/CONFIRM/CANCEL/FLOW_* 放行。
+
+## 6. V2.1 控制台
+
+手机端 `force:true`：没有车载屏配对，或 `console.allowRemoteForce=true` 时生效；已有车载屏且该开关为 `false`（默认）时按非强制处理。`POST /api/control/motor` 与 `POST /api/control/safe` 返回 `403 {"succeed":false,"error":"use_console"}`。
+
+### 6.1 接入
+
+| 方法 | 路径 | 认证 | 说明 |
+|------|------|------|------|
+| POST | /api/pair/local | 无 | body `{kioskToken}`。须来自本机回环地址。成功同 confirm，并 `local:true`。口令错 `403 invalid_kiosk`，非本机 `403 not_local` |
+| POST | /api/pair/join | 无 | body `{ticket}`。核销一次性凭证，配对并强制取得现场锁。失败 `400 invalid_ticket` |
+| GET | /api/pair/join-ticket | 车载屏 | `{ticket,expiresAt,url}`。url 含 `join=`。非车载屏 `403 not_local` |
+| POST | /api/site/unlock | 配对 | 增加 `local:true`（仅车载屏，免现场码）。`force` 在车载屏、无车载屏配对、或 `allowRemoteForce` 时生效 |
+
+### 6.2 控制与参数
+
+除自检外都要配对。没有控制权返回 `403 no_site`。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | /api/console/selfcheck | 无需配对。`{ok,core,jarvis,rosbridge}`。rosbridge 一期为「二期接入」，不参与 ok |
+| GET | /api/console/setup | `{completed,completedAt}` |
+| POST | /api/console/setup/complete | 标记向导完成 |
+| POST | /api/console/setup/reset | 需控制权 |
+| GET | /api/console/status | 急停锁、避障、货叉忙、底盘动、限值、`allowRemoteForce` |
+| POST | /api/console/drive | `{direction,trans,start?}`。direction：`fwd/back/fwd_left/fwd_right/back_left/back_right/spin_left/spin_right` |
+| POST | /api/console/drive/stop | 松手停车；若避障关着则恢复 |
+| POST | /api/console/avoid | `{enabled,confirm?}`。关闭必须 confirm，车在动时 `409 robot_moving` |
+| POST | /api/console/fork | `{axis:lift\|extend,mode:step\|target,delta?,pos?,confirm?}` |
+| POST | /api/console/stop | 软停：停车、清货叉忙、恢复避障。不关电机 |
+| POST | /api/console/estop | 任意已配对终端。停车、取消任务流、关电机、恢复避障 |
+| POST | /api/console/estop/release | `{confirm:true}`，需控制权 |
+| GET | /api/console/params | `{sections:{段:{editable,items}}}` |
+| POST | /api/console/params | `{changes,confirm}`。按整段合并后下发 |
+| GET | /api/console/params/backups | `{backups:[{id,ts,clientId}]}` |
+| POST | /api/console/params/restore | `{backupId,confirm}` |
+| GET | /api/console/params/log | `{log:[...]}` |
+
+常见错误：`409 estop/fork_busy/chassis_moving/flow_running/robot_moving`，`400 confirm_required/invalid_direction/invalid_params/not_supported`，`502` 车端失败。`invalid_params` 带 `details`。货叉 `confirm_required` 带 `current` 与 `target`。
+
