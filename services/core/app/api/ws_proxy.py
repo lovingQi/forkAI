@@ -106,3 +106,64 @@ async def ws_high(ws: WebSocket):
 @router.websocket("/ws/low")
 async def ws_low(ws: WebSocket):
     await _pipe_jarvis(ws, "low")
+
+
+@router.websocket("/ws/mapping/tasks/{task_id}/live")
+async def ws_mapping_live(ws: WebSocket, task_id: str):
+    await ws.accept()
+    try:
+        raw = await asyncio.wait_for(ws.receive_text(), 5)
+        msg = json.loads(raw)
+        rec = ws.app.state.sessions.resolve_token(str((msg or {}).get("pairToken") or "")) if isinstance(msg, dict) else None
+        if not rec:
+            await ws.close(code=4401)
+            return
+    except Exception:
+        await ws.close(code=4401)
+        return
+    base = str((ws.app.state.cfg.get("mapping") or {}).get("baseUrl") or "")
+    if base.startswith("https://"):
+        upstream_url = "wss://" + base[len("https://"):]
+    elif base.startswith("http://"):
+        upstream_url = "ws://" + base[len("http://"):]
+    else:
+        await ws.close()
+        return
+    upstream_url = upstream_url.rstrip("/") + f"/api/v1/mapping/tasks/{task_id}/live"
+    try:
+        kwargs = {"proxy": None} if _loopback(upstream_url) else {}
+        try:
+            upstream = await websockets.connect(upstream_url, **kwargs)
+        except TypeError:
+            upstream = await websockets.connect(upstream_url)
+    except Exception:
+        await ws.close()
+        return
+
+    async def upstream_to_client():
+        async for msg in upstream:
+            if isinstance(msg, bytes):
+                await ws.send_bytes(msg)
+            else:
+                await ws.send_text(msg)
+
+    async def discard_client():
+        while True:
+            await ws.receive()
+
+    try:
+        tasks = [asyncio.ensure_future(upstream_to_client()), asyncio.ensure_future(discard_client())]
+        _done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        for task in pending:
+            task.cancel()
+    except Exception:
+        pass
+    finally:
+        try:
+            await upstream.close()
+        except Exception:
+            pass
+        try:
+            await ws.close()
+        except Exception:
+            pass

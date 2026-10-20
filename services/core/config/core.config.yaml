@@ -145,3 +145,7 @@ console:
 trace:
   capacity: 500
   observe_poll_ms: 1000
+# 建图服务。只在本机，由 core 代理并做配对/现场锁门控。
+mapping:
+  baseUrl: http://127.0.0.1:19010
+  timeoutMs: 30000

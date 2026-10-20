@@ -1,0 +1,22 @@
+{
+  "revision": "1",
+  "expectedSensors": [{"id": "range", "type": "RANGE"}],
+  "trajectoryBuilderOptions": {"trajectory_builder_2d": {}},
+  "range": {
+    "topic": "/front/scan",
+    "sensorId": "range",
+    "sourceFrame": "front_laser_link",
+    "trackingFrame": "base_link",
+    "transformToTracking": {
+      "translation": {"x": 0, "y": 0, "z": 0},
+      "rotation": {"x": 0, "y": 0, "z": 0, "w": 1}
+    }
+  },
+  "limits": {
+    "maxReadBytes": 536870912,
+    "maxDecompressedChunkBytes": 67108864,
+    "maxMessageBytes": 16777216,
+    "maxBatchMessages": 128,
+    "maxBatchBytes": 8388608
+  }
+}

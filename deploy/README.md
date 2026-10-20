@@ -119,4 +119,8 @@ cd /usr/local/forkai
 
 - 厂网内须配对码才能控制；点动须现场码；急停触发自动退出现场模式。
 - 语音「停」≠ 实体急停，急停仍以车身硬件为准。
-- 勿将 core（19000）暴露到公网；llm（19002）只监听回环。
+- 勿将 core（19000）暴露到公网；llm（19002）和建图服务（19010）只监听回环。
+
+## 建图引擎
+
+感知同事把 2D 引擎放到 `/opt/forkai-engines/mapping-engine-2d`（程序、proto、Lua、profiles）。3D 引擎目录以后再加。路径写在 `services/mapping/config/mapping.config.yaml`。没有这套文件时建图服务可以启动，但状态里引擎不可用。每台车的 URDF 替换 `services/mapping/config/robot.urdf`，link 名要和 Foxglove 消息的 frame_id 一致。Bridge 默认 `ws://127.0.0.1:8765`。

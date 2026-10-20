@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<!-- 占位模型。实车外参用同事提供的 URDF 替换本文件，link 名必须与 Foxglove 消息 frame_id 一致。 -->
+<robot name="fork">
+  <link name="base_link"/>
+  <link name="front_laser_link"/>
+  <joint name="front_laser" type="fixed">
+    <parent link="base_link"/>
+    <child link="front_laser_link"/>
+    <origin xyz="1.2 0 0.2" rpy="0 0 0"/>
+  </joint>
+  <link name="back_laser_link"/>
+  <joint name="back_laser" type="fixed">
+    <parent link="base_link"/>
+    <child link="back_laser_link"/>
+    <origin xyz="-1.2 0 0.2" rpy="0 0 3.141592653589793"/>
+  </joint>
+</robot>

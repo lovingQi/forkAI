@@ -8,12 +8,14 @@
 import asyncio
 from pathlib import Path
 
+import httpx
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .api import routes_console, routes_flows, routes_pair, routes_robot, routes_site, routes_trace, routes_voice, ws_proxy
+from .api import routes_console, routes_flows, routes_mapping, routes_pair, routes_robot, routes_site, routes_trace, routes_voice, ws_proxy
 from .api.deps import LocalOnlyError, UnpairedError
 from .config import load_config
 from .console.controller import ConsoleController
@@ -117,6 +119,7 @@ app.include_router(routes_robot.router)
 app.include_router(routes_flows.router)
 app.include_router(routes_trace.router)
 app.include_router(routes_console.router)
+app.include_router(routes_mapping.router)
 app.include_router(ws_proxy.router)
 
 # 静态托管前端构建产物（对齐 index.ts express.static）
@@ -144,10 +147,15 @@ async def _startup_log():
     tts_cfg = cfg.get("tts") or {}
     if tts_cfg.get("prewarm_on_startup"):
         start_prewarm(app)
+    timeout = float((cfg.get("mapping") or {}).get("timeoutMs") or 30000) / 1000
+    app.state.mapping_http = httpx.AsyncClient(timeout=timeout, trust_env=False)
 
 
 @app.on_event("shutdown")
 async def _shutdown():
+    client = getattr(app.state, "mapping_http", None)
+    if client is not None:
+        await client.aclose()
     await stop_prewarm(app)
     await console.shutdown()
     await state_observer.stop()

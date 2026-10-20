@@ -170,3 +170,12 @@ docs/requirements-v2.md, architecture-v2.md, api-v2.md, user-manual.md, acceptan
 | jarvis route完成语义不符（步骤21） | mode/status字符串+超时兜底；最坏逐节点固定等待 |
 | Vue Flow 分支/并行超期 | 先顺序+分支，并行组降V2.1 |
 | 真车时间受限 | Mock全覆盖优先，真车只做步骤21/50/51关键验证 |
+
+## 五、V2.1 建图第一阶段（2026-10-20 进入执行）
+
+- [x] forkai-mapping：2D 在线任务、Foxglove 接入、引擎进程、测试 proto 上的假引擎、UMCL 与 robospace 二维 ZIP
+- [x] core 代理、现场锁门控、实时 WebSocket 鉴权
+- [x] 建图页：四入口、准备检查、实时栅格、内嵌点动、结果与导出
+- [ ] 对照同事 proto 的核对点 A/B/C，以及 robospace 实际导入 ZIP（核对点 D 的跨项目实测）
+- [ ] 2D 离线、2D 增量、3D 在线、3D 离线、3D 增量
+- [ ] RK3588 真引擎与真车开车建图

@@ -1,0 +1,27 @@
+# forkai-mapping。引擎包由感知同事部署；路径以实车为准。
+server:
+  host: 127.0.0.1
+  port: 19010
+dataDir: data
+minFreeBytes: 1073741824
+foxglove:
+  url: ws://127.0.0.1:8765
+  preflightTimeoutMs: 10000
+  startTimeoutMs: 10000
+robot:
+  urdf: config/robot.urdf
+  resourceId: fork-01
+engines:
+  cartographer:
+    enabled: true
+    bin: /opt/forkai-engines/mapping-engine-2d/bin/cartographer_grpc_server
+    protoRoot: /opt/forkai-engines/mapping-engine-2d/proto
+    configDir: /opt/forkai-engines/mapping-engine-2d/config
+    configBasename: range_odom_2d_server.lua
+    profileRoot: /opt/forkai-engines/mapping-engine-2d/profiles
+    endpoint: 127.0.0.1:50051
+    engineVersion: ""
+    buildId: ""
+    readyTimeoutMs: 20000
+    stopTimeoutMs: 5000
+    killTimeoutMs: 5000

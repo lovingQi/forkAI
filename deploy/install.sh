@@ -149,6 +149,18 @@ log "pip install -r requirements.txt（镜像: $PIP_INDEX）..."
 "$CORE_DIR/.venv/bin/pip" install --upgrade pip -i "$PIP_INDEX"
 "$CORE_DIR/.venv/bin/pip" install -i "$PIP_INDEX" -r "$CORE_DIR/requirements.txt"
 
+MAP_DIR="$INSTALL_DIR/services/mapping"
+if [ -f "$MAP_DIR/requirements.txt" ]; then
+  if [ -x "$MAP_DIR/.venv/bin/python" ]; then
+    log "mapping venv 已存在，跳过创建"
+  else
+    log "创建 services/mapping/.venv ..."
+    "$CONDA_DIR/bin/python3" -m venv "$MAP_DIR/.venv"
+  fi
+  "$MAP_DIR/.venv/bin/pip" install --upgrade pip -i "$PIP_INDEX"
+  "$MAP_DIR/.venv/bin/pip" install -i "$PIP_INDEX" -r "$MAP_DIR/requirements.txt"
+fi
+
 # ---------- 4. 安装依赖并构建前端 ----------
 if [ -d "$INSTALL_DIR/node_modules" ]; then
   log "node_modules 已存在，跳过 npm install（离线/复用场景）"
@@ -343,6 +355,9 @@ taskflow:
   poll_ms: 500
 safety:
   estop_exit_site: true
+mapping:
+  baseUrl: http://127.0.0.1:19010
+  timeoutMs: 30000
 EOF
 
 # ---------- 9. systemd 双单元（替代旧 gateway/speech）----------
@@ -394,8 +409,34 @@ MemoryMax=4G
 WantedBy=multi-user.target
 EOF
 
+if [ -x "$MAP_DIR/.venv/bin/python" ]; then
+cat > /etc/systemd/system/forkai-mapping.service <<EOF
+[Unit]
+Description=forkAI mapping (local mapping service)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=$MAP_DIR
+Environment=FORKAI_MAPPING_CONFIG=$MAP_DIR/config/mapping.config.yaml
+ExecStart=$MAP_DIR/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 19010
+Restart=on-failure
+RestartSec=2
+MemoryMax=2G
+
+[Install]
+WantedBy=multi-user.target
+EOF
+fi
+
 systemctl daemon-reload
 systemctl enable --now forkai-core
+if [ -f /etc/systemd/system/forkai-mapping.service ]; then
+  systemctl enable --now forkai-mapping
+  if [ ! -d /opt/forkai-engines/mapping-engine-2d ]; then
+    log "警告：未找到 /opt/forkai-engines/mapping-engine-2d。建图引擎由感知同事部署，缺失时建图服务会报告引擎不可用，安装不中止。"
+  fi
+fi
 
 # ---------- 10. 完成提示 ----------
 IP="$(hostname -I 2>/dev/null | awk '{print $1}')"

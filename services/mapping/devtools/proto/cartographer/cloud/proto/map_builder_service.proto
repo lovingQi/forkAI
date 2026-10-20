@@ -1,0 +1,180 @@
+syntax = "proto3";
+
+package cartographer.cloud.proto;
+
+// 测试用协议，字段名对齐 robospace grpcCartographerControlClient（camelCase → snake_case）。
+// 不是同事部署的 map_builder_service.proto。核对点 A/B 未用同事 proto 关闭。
+
+service MapBuilderService {
+  rpc AddTrajectory(AddTrajectoryRequest) returns (AddTrajectoryResponse);
+  rpc AddSensorDataBatch(AddSensorDataBatchRequest) returns (AddSensorDataBatchResponse);
+  rpc FinishTrajectory(FinishTrajectoryRequest) returns (FinishTrajectoryResponse);
+  rpc RunFinalOptimization(RunFinalOptimizationRequest) returns (RunFinalOptimizationResponse);
+  rpc WriteStateToFile(WriteStateToFileRequest) returns (WriteStateToFileResponse);
+  rpc DeleteTrajectory(DeleteTrajectoryRequest) returns (DeleteTrajectoryResponse);
+  rpc GetAllSubmapPoses(GetAllSubmapPosesRequest) returns (GetAllSubmapPosesResponse);
+  rpc GetSubmap(GetSubmapRequest) returns (GetSubmapResponse);
+  rpc ReceiveLocalSlamResults(ReceiveLocalSlamResultsRequest) returns (stream ReceiveLocalSlamResultsResponse);
+  rpc GetLocalToGlobalTransform(GetLocalToGlobalTransformRequest) returns (GetLocalToGlobalTransformResponse);
+  rpc GetIncrementalCapabilities(GetIncrementalCapabilitiesRequest) returns (GetIncrementalCapabilitiesResponse);
+}
+
+enum SensorType {
+  RANGE = 0;
+  IMU = 1;
+  ODOMETRY = 2;
+}
+
+message Vector3d {
+  double x = 1;
+  double y = 2;
+  double z = 3;
+}
+
+message Quaterniond {
+  double x = 1;
+  double y = 2;
+  double z = 3;
+  double w = 4;
+}
+
+message Rigid3d {
+  Vector3d translation = 1;
+  Quaterniond rotation = 2;
+}
+
+message SensorId {
+  string id = 1;
+  SensorType type = 2;
+}
+
+message AddTrajectoryRequest {
+  repeated SensorId expected_sensor_ids = 1;
+  string trajectory_builder_options_json = 2;
+  string client_id = 3;
+}
+
+message AddTrajectoryResponse {
+  int32 trajectory_id = 1;
+}
+
+message SensorMetadata {
+  int32 trajectory_id = 1;
+  string sensor_id = 2;
+  string client_id = 3;
+}
+
+message TimedPoint {
+  Vector3d position = 1;
+  double time = 2;
+}
+
+message TimedPointCloudData {
+  int64 timestamp = 1;
+  Vector3d origin = 2;
+  repeated TimedPoint point_data = 3;
+}
+
+message OdometryData {
+  int64 timestamp = 1;
+  Rigid3d pose = 2;
+}
+
+message SensorData {
+  SensorMetadata sensor_metadata = 1;
+  oneof payload {
+    TimedPointCloudData timed_point_cloud_data = 2;
+    OdometryData odometry_data = 3;
+  }
+}
+
+message AddSensorDataBatchRequest {
+  repeated SensorData sensor_data = 1;
+}
+message AddSensorDataBatchResponse {}
+
+message FinishTrajectoryRequest {
+  int32 trajectory_id = 1;
+  string client_id = 2;
+}
+message FinishTrajectoryResponse {}
+
+message RunFinalOptimizationRequest {}
+message RunFinalOptimizationResponse {}
+
+message WriteStateToFileRequest {
+  string filename = 1;
+}
+message WriteStateToFileResponse {
+  bool success = 1;
+}
+
+message DeleteTrajectoryRequest {
+  int32 trajectory_id = 1;
+  string client_id = 2;
+}
+message DeleteTrajectoryResponse {}
+
+message SubmapId {
+  int32 trajectory_id = 1;
+  int32 submap_index = 2;
+}
+
+message SubmapPose {
+  SubmapId submap_id = 1;
+  int32 submap_version = 2;
+  Rigid3d global_pose = 3;
+}
+
+message GetAllSubmapPosesRequest {}
+message GetAllSubmapPosesResponse {
+  repeated SubmapPose submap_poses = 1;
+}
+
+message SubmapTexture {
+  int32 width = 1;
+  int32 height = 2;
+  double resolution = 3;
+  Rigid3d slice_pose = 4;
+  bytes cells = 5;
+}
+
+message SubmapQueryResponse {
+  repeated SubmapTexture textures = 1;
+  int32 submap_version = 2;
+}
+
+message GetSubmapRequest {
+  SubmapId submap_id = 1;
+}
+message GetSubmapResponse {
+  SubmapQueryResponse submap_query_response = 1;
+}
+
+message RangefinderPoint {
+  Vector3d position = 1;
+}
+message RangeData {
+  repeated RangefinderPoint returns = 1;
+}
+
+message ReceiveLocalSlamResultsRequest {
+  int32 trajectory_id = 1;
+}
+message ReceiveLocalSlamResultsResponse {
+  int64 timestamp = 1;
+  Rigid3d local_pose = 2;
+  RangeData range_data = 3;
+}
+
+message GetLocalToGlobalTransformRequest {
+  int32 trajectory_id = 1;
+}
+message GetLocalToGlobalTransformResponse {
+  Rigid3d local_to_global = 1;
+}
+
+message GetIncrementalCapabilitiesRequest {}
+message GetIncrementalCapabilitiesResponse {
+  int32 protocol_version = 1;
+}

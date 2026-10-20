@@ -209,5 +209,13 @@
 | POST | /api/console/params/restore | `{backupId,confirm}` |
 | GET | /api/console/params/log | `{log:[...]}` |
 
+### 1.x 建图代理
+
+core 把 `/api/mapping/{path}` 原样转到 `http://127.0.0.1:19010/api/v1/mapping/{path}`。GET 和 `POST /api/mapping/drafts/validate` 只需配对。`POST /api/mapping/tasks`、`POST /api/mapping/tasks/{id}/finish`、`POST /api/mapping/tasks/{id}/cancel`、`DELETE /api/mapping/maps/{id}` 还要现场锁，否则 `403 no_site`。建图服务没启动时 `502 mapping_unavailable`。
+
+实时通道是 `/ws/mapping/tasks/{id}/live`。连接后 5 秒内发送 `{"type":"auth","pairToken"}`，口令无效则关闭码 4401。文本帧为 JSON（state、pose、trajectory、scan、stats），二进制帧是 `[u32 头长度][头 JSON][PNG]`。
+
+建图服务自身的错误体是 `{"error":{"code","message","diagnosticId"}}`。code 取 `MAPPING_ENGINE_UNAVAILABLE`、`MAPPING_ENGINE_INCOMPATIBLE`、`MAPPING_INPUT_INVALID`、`MAPPING_CALIBRATION_MISSING`、`MAPPING_TASK_BUSY`、`MAPPING_TASK_START_FAILED`、`MAPPING_TASK_INTERRUPTED`、`MAPPING_RESULT_INVALID`。
+
 常见错误：`409 estop/fork_busy/chassis_moving/flow_running/robot_moving`，`400 confirm_required/invalid_direction/invalid_params/not_supported`，`502` 车端失败。`invalid_params` 带 `details`。货叉 `confirm_required` 带 `current` 与 `target`。
 

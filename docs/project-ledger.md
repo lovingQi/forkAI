@@ -147,4 +147,4 @@
 |---|---|---|---|---|---|---|---|---|
 | V21-1 | 一期：外壳导航、开机自检、扫码接入、初始向导、基本控制、参数 | AI | 0/0 | 进行中 | Mock+浏览器通过；真车动作另计 E5 | `scripts/console_test.py` 16/16；`protocol_conformance.py` 7/7；e2e 01/02/04/05/06/07/08/09/10 通过。03 与 week2/3/4 的语音项因规则关闭且云端 LLM 失败，未通过 | 独立部门评审未形成；C-R1～C-R4 真车未验 | 2026-10-20 |
 | V21-2 | 二期：rosbridge、故障列表、部件自检、诊断包 | AI | 0/0 | 未开始 | 车端话题清单确认后另定 | | 等车端同事 | |
-| V21-3 | 三期：建图页、外部日志分析 | AI | 0/0 | 未开始 | 协议与外部接口确定后另定 | | 等车端协议与外部项目 | |
+| V21-3 | 三期：建图页、外部日志分析 | AI | 0/0 | 进行中 | 协议与外部接口确定后另定 | 2D 在线 Mock：`services/mapping/scripts/mapping_unit_test.py` 15/15；`mapping_flow_test.py` 17/17；`services/core/scripts/mapping_proxy_test.py` 6/6；`console_test.py` 17/17；`protocol_conformance.py` 7/7；e2e `11-mapping.spec.ts`、`08-control.spec.ts` 通过。同事 proto / 真引擎 / 真车未验。外部日志分析未开始 | 独立部门评审未形成；核对点 A–D 未用同事 proto 关闭 | 2026-10-20 |

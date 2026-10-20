@@ -158,3 +158,7 @@ llama.cpp 为 b10256 源码编译（-DGGML_NATIVE=OFF -DLLAMA_CURL=OFF，gcc 9.4
 | voice-gateway config/utterances.zh-CN.json | config/utterances.zh-CN.json（扩充） |
 | services/speech（TTS HTTP 服务） | app/tts/service.py（云端+缓存）+ app/tts/piper.py（core 内 piper CLI 兜底） |
 | packages/shared 类型 | 继续为前端共享类型源（IntentName 同步扩充） |
+
+## 8. 建图服务（V2.1 三期第一阶段）
+
+浏览器只访问 forkai-core。`/api/mapping/*` 和 `/ws/mapping/tasks/{id}/live` 由 core 鉴权后代理到 `127.0.0.1:19010` 的 forkai-mapping。建图服务负责 Foxglove Bridge 接入、每个任务拉起一次 Cartographer 进程、gRPC、实时栅格和地图目录。引擎程序、proto 和 Lua 由感知同事部署，默认路径 `/opt/forkai-engines/mapping-engine-2d`。3D Traverse 与离线、增量不在第一阶段。

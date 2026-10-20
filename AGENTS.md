@@ -2,7 +2,7 @@
 
 ## 技术栈与红线
 
-- 唯一活跃栈是 **V2**：mock-jarvis(:8080) + forkai-core(:19000) + apps/web。llama-server(:19002) 侧车保留但不作为运行时 NLU。
+- 唯一活跃栈是 **V2**：mock-jarvis(:8080) + forkai-core(:19000) + apps/web。建图由本机 forkai-mapping(:19010) 承担，core 只做代理和门控。llama-server(:19002) 侧车保留但不作为运行时 NLU。
 - **V1（services/voice-gateway、services/speech、forkweb）已冻结禁用**：不要启动、不要修改、不要为其新增功能。相关 npm 命令仅以 `dev:legacy:*` 前缀保留作历史参考。
 - V1 老服务需 node≥20 才能运行（系统 node16 会崩），这正是不应再碰它的原因之一。V2 中 mock-jarvis 用系统 node 即可；tests/e2e 的 Playwright 需 node≥20。
 
@@ -19,8 +19,9 @@
 | 端口 | 组件 |
 |---|---|
 | 8080 | mock-jarvis（车端模拟） |
-| 19000 | forkai-core（唯一后端） |
+| 19000 | forkai-core（唯一对外后端；建图请求代理到 19010） |
 | 19002 | llama-server（历史 NLU 侧车，运行时不再拉起） |
+| 19010 | forkai-mapping（建图，只监听 127.0.0.1） |
 | 5173 | vite dev（仅前端热更新时） |
 
 ## 回归测试
@@ -69,6 +70,7 @@
 | ASR、端点、音频链路 | `asr_cloud_test.py` + `ws_audio_test.py` |
 | `asr/cloud.py` | `asr_cloud_test.py` |
 | `apps/web` | Web typecheck + Web build + 受影响 Playwright 用例 |
+| `services/mapping` | `scripts/mapping_unit_test.py` + `scripts/mapping_flow_test.py`；代理改动再加 core 的 `scripts/mapping_proxy_test.py` |
 | 配对、现场锁、语音、流程编辑器、急停 UI | Node 20+ 下运行受影响 `tests/e2e/specs` |
 | Mock 或车端协议映射 | `protocol_conformance.py` + 受影响 Week 回归；必要时保留真车待验状态 |
 | `tts/*` | `tts_cloud_test.py` + `week2_regression.py` |
