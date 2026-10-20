@@ -7,6 +7,8 @@ from pathlib import Path
 from ..engine.process import EngineProcess
 from ..engine.traverse_client import TraverseClient
 from ..errors import MappingError
+from ..feed.traverse_feed import run_online_traverse
+from ..ingest.livox import to_sensor_message
 from ..recording.reader import open_recording
 
 
@@ -20,6 +22,8 @@ class TraverseSession:
         self.engine = None
         self.closing = False
         self.background = []
+        self.received = 0
+        self.submitted = 0
 
     def request(self, action: str) -> None:
         self.action = action
@@ -44,22 +48,28 @@ class TraverseSession:
         self._set("starting")
         workspace = Path(self.ctx.cfg["dataDir"]) / "tasks" / self.task.id / "engine"
         workspace.mkdir(parents=True, exist_ok=True)
+        endpoint = cfg.get("endpoint", "127.0.0.1:50052")
         self.engine = EngineProcess(
-            executable=str(root / manifest["executable"]),
-            arguments=[f"--listen_address={cfg.get('endpoint', '127.0.0.1:50052')}", f"--workspace={workspace}"],
+            executable=str((root / manifest["executable"]).resolve()),
+            arguments=[f"--listen_address={endpoint}", f"--workspace={workspace}"],
             cwd=str(root),
-            env={"FORKAI_FAKE_TRAVERSE_WORKSPACE": str(workspace), "FORKAI_FAKE_TRAVERSE_VERSION": manifest.get("engineVersion", "test"), "FORKAI_FAKE_TRAVERSE_BUILD": manifest.get("buildId", "test")},
+            env={
+                "FORKAI_FAKE_TRAVERSE_WORKSPACE": str(workspace),
+                "FORKAI_FAKE_TRAVERSE_VERSION": manifest.get("engineVersion", "test"),
+                "FORKAI_FAKE_TRAVERSE_BUILD": manifest.get("buildId", "test"),
+            },
             log_path=workspace.parent / "engine.log",
             ready_timeout=cfg.get("readyTimeoutMs", 30000) / 1000,
             stop_timeout=5,
             kill_timeout=5,
-            endpoint=cfg.get("endpoint", "127.0.0.1:50052"),
+            endpoint=endpoint,
         )
         await self.engine.start()
-        self.client = TraverseClient(cfg.get("endpoint", "127.0.0.1:50052"), root / manifest.get("protoRoot", "proto"), Path(self.ctx.cfg["dataDir"]) / "proto_gen")
+        self.client = TraverseClient(endpoint, (root / manifest.get("protoRoot", "proto")).resolve(), Path(self.ctx.cfg["dataDir"]) / "proto_gen")
         info = await self.client.server_info()
         objective = (self.task.objective or {}).get("kind")
         self.client.assert_compatible(info, self.task.mode, None if objective in (None, "create") else objective)
+        self.task.snapshot = {"engineVersion": manifest.get("engineVersion") or "", "buildId": manifest.get("buildId") or ""}
         definition = {
             "clientId": "forkai",
             "pipeline": "lidar-inertial-3d",
@@ -71,35 +81,102 @@ class TraverseSession:
         }
         await self.client.create(definition)
         self._set("running")
-        if (self.task.source or {}).get("kind") == "recording":
+        if self.task.mode == "online" and (self.task.source or {}).get("kind") != "recording":
+            self.background.append(asyncio.create_task(self._feed_online()))
+            self.background.append(asyncio.create_task(self._snapshots()))
+        else:
             self.background.append(asyncio.create_task(self._feed_recording()))
-        elif objective not in (None, "create"):
-            self.background.append(asyncio.create_task(self._feed_recording()))
+
+    def _scale(self) -> float:
+        return float(((self.ctx.cfg.get("engines") or {}).get("traverse") or {}).get("imuAccelScale") or 9.80665)
+
+    def _touch(self, received: int, submitted: int, rejected: int) -> None:
+        self.received = received
+        self.submitted = submitted
+        self.task.stats = {
+            **self.task.stats,
+            "received": received,
+            "submitted": submitted,
+            "accepted": submitted,
+            "rejected": rejected,
+        }
+        self.ctx.tasks.save(self.task)
+
+    async def _feed_online(self) -> None:
+        try:
+            reason = await run_online_traverse(
+                self.ctx.cfg["foxglove"]["url"], self.task.inputs, self.client, self._scale(), self._touch,
+                lambda: self.closing,
+            )
+        except MappingError as exc:
+            if not self.closing:
+                await self._fail(exc)
+            return
+        except Exception as exc:
+            if not self.closing:
+                await self._fail(MappingError("MAPPING_TASK_INTERRUPTED", "3D 传感器中断", diagnostic=repr(exc)))
+            return
+        if reason == "bridge_disconnected" and not self.closing and self.task.status == "running":
+            self.task.stopReason = "bridge_disconnected"
+            self._set("ready-to-save")
+            self.wake.set()
+
+    async def _snapshots(self) -> None:
+        revision = 0
+        while not self.closing and self.task.status == "running":
+            await asyncio.sleep(1)
+            if self.closing or self.client is None:
+                return
+            try:
+                rev, blob, count = await self.client.snapshot(30000, revision)
+            except Exception:
+                continue
+            if count and rev != revision:
+                revision = rev
+                await self.ctx.live.publish_map(self.task.id, {
+                    "kind": "cloud", "revision": rev, "count": count, "pointStep": 16,
+                }, blob)
+            await self.ctx.live.publish_text(self.task.id, "state", {"type": "state", "task": self.task.to_dict()})
 
     async def _feed_recording(self) -> None:
         meta = self.ctx.recordings.get(self.task.source["recordingId"])
         _summary, messages = open_recording(meta["path"], [])
         sequence = 0
-        count = 0
+        batch = []
+        submitted = 0
         objective = (self.task.objective or {}).get("kind")
-        for _item in messages():
-            count += 1
-            if count >= 16:
-                sequence += 1
-                await self.client.add_batch(sequence, count)
-                count = 0
-                if objective not in (None, "create") and self.task.alignmentPhase != "confirmed":
-                    state = await self.client.align(False)
-                    if state == "failed":
-                        raise MappingError("MAPPING_INPUT_INVALID", "3D 对齐失败，请调整初始位姿")
-                    if state == "ready":
-                        self.task.alignmentPhase = "awaiting-confirmation"
-                        self._set("paused")
-                        while self.task.alignmentPhase == "awaiting-confirmation" and not self.closing:
-                            await asyncio.sleep(0.1)
-        if count:
+        scale = self._scale()
+        received = 0
+        for item in messages():
+            if self.closing:
+                return
+            received += 1
+            sensor_id = "lidar" if "points" in item["decoded"] else "imu"
+            message = to_sensor_message(item["decoded"], item["stamp_ns"], sensor_id, scale)
+            if message is None:
+                continue
+            batch.append(message)
+            if len(batch) < 16:
+                continue
             sequence += 1
-            await self.client.add_batch(sequence, count)
+            await self.client.add_batch(sequence, batch)
+            submitted += len(batch)
+            self._touch(received, submitted, 0)
+            batch = []
+            if objective not in (None, "create") and self.task.alignmentPhase != "confirmed":
+                state = await self.client.align(False)
+                if state == "failed":
+                    raise MappingError("MAPPING_INPUT_INVALID", "3D 对齐失败，请调整初始位姿")
+                if state == "ready":
+                    self.task.alignmentPhase = "awaiting-confirmation"
+                    self._set("paused")
+                    while self.task.alignmentPhase == "awaiting-confirmation" and not self.closing:
+                        await asyncio.sleep(0.1)
+        if batch:
+            sequence += 1
+            await self.client.add_batch(sequence, batch)
+            submitted += len(batch)
+            self._touch(received, submitted, 0)
         self.task.stopReason = "end_of_input"
         self._set("ready-to-save")
         self.wake.set()
@@ -124,12 +201,11 @@ class TraverseSession:
             if self.action == "finish" and self.task.status in {"running", "ready-to-save"}:
                 await self._finish()
                 return
-            if self.task.mode == "online" and self.task.status == "running" and self.action is None:
-                # 在线假引擎没有真实点云流时，测试用 finish 收尾。
-                continue
 
     async def _finish(self) -> None:
         self.closing = True
+        for task in self.background:
+            task.cancel()
         self._set("finishing")
         await self.client.finish()
         self._set("exporting")
@@ -153,6 +229,7 @@ class TraverseSession:
             self._set("failed")
 
     async def _teardown(self) -> None:
+        self.closing = True
         for task in self.background:
             task.cancel()
         if self.client:

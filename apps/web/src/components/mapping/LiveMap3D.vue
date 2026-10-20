@@ -1,46 +1,101 @@
 <template>
-  <div ref="host" class="cloud"></div>
+  <div ref="host" class="cloud">
+    <p v-if="fallback" class="fallback">当前环境没有 WebGL，点云计数仍会更新</p>
+  </div>
 </template>
 
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as THREE from 'three'
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 
-const props = defineProps<{ points: number[] }>()
+const props = defineProps<{ points: Float32Array }>()
 const host = ref<HTMLDivElement | null>(null)
+const fallback = ref(false)
 let renderer: THREE.WebGLRenderer | null = null
 let scene: THREE.Scene | null = null
 let camera: THREE.PerspectiveCamera | null = null
 let cloud: THREE.Points | null = null
+let controls: OrbitControls | null = null
 let frame = 0
+let fitted = false
+let observer: ResizeObserver | null = null
 
 function draw() {
-  if (!scene || !camera || !renderer || !cloud) return
-  const count = Math.floor(props.points.length / 3)
+  if (!cloud || !camera || !controls) return
+  const source = props.points
+  const count = Math.floor(source.length / 4)
   const positions = new Float32Array(Math.max(count, 1) * 3)
-  if (count) positions.set(props.points.slice(0, count * 3))
-  else positions.set([0, 0, 0])
+  const colors = new Float32Array(Math.max(count, 1) * 3)
+  let minZ = Infinity
+  let maxZ = -Infinity
+  for (let index = 0; index < count; index += 1) {
+    const z = source[index * 4 + 2]
+    positions[index * 3] = source[index * 4]
+    positions[index * 3 + 1] = source[index * 4 + 1]
+    positions[index * 3 + 2] = z
+    if (z < minZ) minZ = z
+    if (z > maxZ) maxZ = z
+  }
+  const span = maxZ - minZ || 1
+  for (let index = 0; index < count; index += 1) {
+    const height = (positions[index * 3 + 2] - minZ) / span
+    colors[index * 3] = 0.4 + height * 0.6
+    colors[index * 3 + 1] = 0.85
+    colors[index * 3 + 2] = 0.2
+  }
   cloud.geometry.dispose()
   const geometry = new THREE.BufferGeometry()
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
   cloud.geometry = geometry
-  renderer.render(scene, camera)
+  if (!fitted && count > 10) {
+    geometry.computeBoundingSphere()
+    const sphere = geometry.boundingSphere
+    if (sphere) {
+      const radius = sphere.radius || 5
+      camera.position.copy(sphere.center).add(new THREE.Vector3(radius, radius, radius))
+      controls.target.copy(sphere.center)
+      controls.update()
+      fitted = true
+    }
+  }
+}
+
+function resize() {
+  const el = host.value
+  if (!el || !renderer || !camera) return
+  const width = el.clientWidth || 640
+  const height = el.clientHeight || 360
+  camera.aspect = width / Math.max(height, 1)
+  camera.updateProjectionMatrix()
+  renderer.setSize(width, height)
 }
 
 onMounted(() => {
   const el = host.value!
   scene = new THREE.Scene()
-  camera = new THREE.PerspectiveCamera(50, 1, 0.01, 500)
-  camera.position.set(4, 4, 4)
-  camera.lookAt(0, 0, 0)
-  renderer = new THREE.WebGLRenderer({ antialias: true })
-  renderer.setSize(el.clientWidth || 640, el.clientHeight || 360)
+  camera = new THREE.PerspectiveCamera(50, 1, 0.05, 500)
+  camera.position.set(8, 8, 8)
+  try {
+    renderer = new THREE.WebGLRenderer({ antialias: true })
+  } catch {
+    fallback.value = true
+    return
+  }
+  renderer.setPixelRatio(window.devicePixelRatio || 1)
   el.appendChild(renderer.domElement)
-  const material = new THREE.PointsMaterial({ color: 0xb6ff3b, size: 0.05 })
+  controls = new OrbitControls(camera, renderer.domElement)
+  controls.enableDamping = true
+  const material = new THREE.PointsMaterial({ size: 0.06, vertexColors: true })
   cloud = new THREE.Points(new THREE.BufferGeometry(), material)
   scene.add(cloud)
+  resize()
+  observer = new ResizeObserver(resize)
+  observer.observe(el)
   const loop = () => {
     frame = requestAnimationFrame(loop)
+    controls?.update()
     if (renderer && scene && camera) renderer.render(scene, camera)
   }
   loop()
@@ -49,10 +104,13 @@ onMounted(() => {
 watch(() => props.points, draw)
 onBeforeUnmount(() => {
   cancelAnimationFrame(frame)
+  observer?.disconnect()
+  controls?.dispose()
   renderer?.dispose()
 })
 </script>
 
 <style scoped>
-.cloud { width: 100%; height: 100%; min-height: 240px; }
+.cloud { width: 100%; height: 100%; min-height: 240px; position: relative; background: #0c120e; }
+.fallback { margin: 16px; color: var(--hud-muted, #7f8f84); }
 </style>

@@ -1,18 +1,28 @@
 <template>
   <div class="prepare">
     <button type="button" @click="emit('back')">返回</button>
-    <h2>准备在线建图</h2>
+    <h2>{{ dimension === '3d' ? '准备 3D 在线建图' : '准备在线建图' }}</h2>
     <label>建图参数
       <select v-model="profileId">
-        <option v-for="item in profiles" :key="item.id" :value="item.id">{{ item.name }}</option>
+        <option v-for="item in visibleProfiles" :key="item.id" :value="item.id">{{ item.name }}</option>
       </select>
     </label>
-    <label v-for="(item, index) in ranges" :key="item.sensorId">激光 {{ item.sensorId }}
-      <input v-model="item.topic" />
-    </label>
-    <label v-if="odometry">里程计
-      <input v-model="odometry.topic" />
-    </label>
+    <template v-if="dimension === '3d'">
+      <label>雷达
+        <input v-model="lidarTopic" />
+      </label>
+      <label>IMU
+        <input v-model="imuTopic" />
+      </label>
+    </template>
+    <template v-else>
+      <label v-for="item in ranges" :key="item.sensorId">激光 {{ item.sensorId }}
+        <input v-model="item.topic" />
+      </label>
+      <label v-if="odometry">里程计
+        <input v-model="odometry.topic" />
+      </label>
+    </template>
     <details>
       <summary>配置版本</summary>
       <p>仅供排查问题时核对，无需在此配置。</p>
@@ -32,12 +42,16 @@ import MappingReadinessPanel from '@/components/mapping/MappingReadinessPanel.vu
 import { mappingRobot, validateDraft } from '@/api/mapping'
 import { useSessionStore } from '@/stores/session'
 
-const props = defineProps<{ profiles: any[]; mode?: string }>()
+const props = defineProps<{ profiles: any[]; dimension?: '2d' | '3d' }>()
 const emit = defineEmits<{ back: []; start: [draft: Record<string, unknown>] }>()
 const session = useSessionStore()
-const profileId = ref(props.profiles[0]?.id || 'dual-range-odom-2d')
+const dimension = computed(() => props.dimension === '3d' ? '3d' : '2d')
+const visibleProfiles = computed(() => props.profiles.filter((item) => (item.dimension || '2d') === dimension.value))
+const profileId = ref('')
 const ranges = ref<{ sensorId: string; topic: string }[]>([])
 const odometry = ref<{ topic: string } | null>(null)
+const lidarTopic = ref('/livox/lidar')
+const imuTopic = ref('/livox/imu')
 const name = ref('新地图')
 const robot = ref<any>(null)
 const checking = ref(false)
@@ -45,25 +59,43 @@ const checks = ref<any[]>([])
 const issues = ref<any[]>([])
 const ready = ref(false)
 
-const profile = computed(() => props.profiles.find((item) => item.id === profileId.value))
+const profile = computed(() => visibleProfiles.value.find((item) => item.id === profileId.value))
+watch(visibleProfiles, (list) => {
+  if (!list.some((item) => item.id === profileId.value)) profileId.value = list[0]?.id || ''
+}, { immediate: true })
 watch(profile, (item) => {
   const inputs = item?.inputs || {}
-  ranges.value = (inputs.ranges || [{ sensorId: 'front-laser', topic: '/front/scan' }]).map((row: any) => ({ ...row }))
-  odometry.value = inputs.odometry ? { topic: inputs.odometry.topic } : null
+  if (dimension.value === '3d') {
+    lidarTopic.value = inputs.lidar?.topic || '/livox/lidar'
+    imuTopic.value = inputs.imu?.topic || '/livox/imu'
+  } else {
+    ranges.value = (inputs.ranges || [{ sensorId: 'front-laser', topic: '/front/scan' }]).map((row: any) => ({ ...row }))
+    odometry.value = inputs.odometry ? { topic: inputs.odometry.topic } : null
+  }
   ready.value = false
   checks.value = []
   issues.value = []
 }, { immediate: true })
 
 function draft() {
+  if (dimension.value === '3d') {
+    return {
+      dimension: '3d',
+      name: name.value.trim(),
+      source: { kind: 'online' },
+      objective: { kind: 'create' },
+      profileId: profileId.value,
+      inputs: {
+        lidar: { sensorId: 'lidar', topic: lidarTopic.value.trim() },
+        imu: { sensorId: 'imu', topic: imuTopic.value.trim() }
+      }
+    }
+  }
   return {
     dimension: '2d',
-    mode: props.mode === 'offline' ? 'offline' : 'online',
     name: name.value.trim(),
-    source: props.mode === 'offline' ? { kind: 'recording', recordingId: name.value.trim() } : { kind: 'online' },
-    objective: props.mode === 'extend' || props.mode === 'patch'
-      ? { kind: props.mode === 'patch' ? 'update-region' : 'extend', baseProjectId: '', initialPose: { xMm: 0, yMm: 0, yawRad: 0 } }
-      : { kind: 'create' },
+    source: { kind: 'online' },
+    objective: { kind: 'create' },
     profileId: profileId.value,
     inputs: { ranges: ranges.value, odometry: odometry.value }
   }

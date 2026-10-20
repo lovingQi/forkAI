@@ -23,7 +23,20 @@ message SessionRequest { string definition_json = 1; }
 message ValidateResponse { bool valid = 1; }
 message SessionIdResponse { uint64 session_id = 1; }
 message SessionId { uint64 session_id = 1; }
-message BatchRequest { uint64 session_id = 1; uint64 batch_sequence = 2; int32 count = 3; }
+message SensorMessage {
+  string sensor_id = 1;
+  string kind = 2;
+  int64 stamp_ns = 3;
+  uint32 point_step = 4;
+  uint32 point_count = 5;
+  bytes data = 6;
+}
+message BatchRequest {
+  uint64 session_id = 1;
+  uint64 batch_sequence = 2;
+  int32 count = 3;
+  repeated SensorMessage messages = 4;
+}
 message BatchResponse {
   uint64 accepted_batch_sequence = 1;
   uint64 accepted_sensor_messages = 2;

@@ -24,6 +24,7 @@ def _product(profile: dict, profile_id: str, name: str, pipeline_inputs: dict) -
     return {
         "id": profile_id,
         "name": name,
+        "dimension": "2d",
         "pipeline": "lidar-2d",
         "runtimeRevision": profile["revision"],
         "inputs": pipeline_inputs,

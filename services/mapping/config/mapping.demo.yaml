@@ -1,0 +1,35 @@
+# 开发机演示。假引擎，不能当作真车或同事引擎的验收配置。
+server:
+  host: 127.0.0.1
+  port: 19010
+dataDir: ../data-demo
+minFreeBytes: 1
+foxglove:
+  url: ws://127.0.0.1:8765
+  preflightTimeoutMs: 10000
+  startTimeoutMs: 10000
+robot:
+  urdf: robot.urdf
+  resourceId: fork-01
+engines:
+  cartographer:
+    enabled: true
+    bin: ../devtools/fake_cartographer.sh
+    protoRoot: ../devtools/proto
+    configDir: ../devtools/fake-cartographer-config
+    configBasename: range_odom_2d_server.lua
+    profileRoot: ../devtools/sample-profiles
+    endpoint: 127.0.0.1:50051
+    engineVersion: fake
+    buildId: fake
+    readyTimeoutMs: 20000
+    stopTimeoutMs: 5000
+    killTimeoutMs: 5000
+  traverse:
+    root: ../devtools/fake-traverse
+    endpoint: 127.0.0.1:50052
+    readyTimeoutMs: 20000
+    imuAccelScale: 9.80665
+    inputs:
+      lidar: /livox/lidar
+      imu: /livox/imu

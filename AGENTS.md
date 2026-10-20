@@ -9,6 +9,7 @@
 ## 启动与停止
 
 - 一键启动 V2：`./start-v2.sh`（幂等，日志在 `/tmp/forkai-v2/`）。
+- 开发机建图演示：`./start-mapping-demo.sh`（假 Foxglove Bridge 和假引擎，日志在 `/tmp/forkai-v2/`）。只用于本机点选 2D 在线和 3D 在线，不能作为真车或真引擎的验收证据。停止演示进程：`./start-mapping-demo.sh stop`。
 - 云端 TTS/ASR/SiliconFlow LLM 需先 `export FORKAI_TTS_API_KEY=...`；官方 DeepSeek 另需 `export FORKAI_DEEPSEEK_API_KEY=...`（也可写在 gitignore 的 `services/core/config/secrets.yaml`，仅当环境变量为空时注入）。未设置 TTS key 时 TTS 回退 piper，ASR 报识别失败。
 - 前端热更新：`npm run dev:web`（vite :5173，代理到 :19000）。
 - 入口：http://127.0.0.1:19000/（core 静态托管 apps/web/dist）。

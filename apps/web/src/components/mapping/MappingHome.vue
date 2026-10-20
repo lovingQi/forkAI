@@ -10,11 +10,11 @@
         :key="item.id"
         type="button"
         class="card"
-        :disabled="!item.enabled"
-        @click="item.enabled && emit('enter', item.id)"
+        :disabled="item.id !== 'online' || !item.enabled"
+        @click="item.id === 'online' && item.enabled && emit('enter', { id: item.id, dimension })"
       >
         <strong>{{ item.title }}</strong>
-        <span>{{ item.group }}</span>
+        <span>{{ item.enabled ? item.group : '页面未完成' }}</span>
       </button>
     </div>
     <h2>已保存的地图</h2>
@@ -22,6 +22,7 @@
     <ul>
       <li v-for="map in maps" :key="map.projectId">
         <span>{{ map.name }}</span>
+        <span class="meta">{{ map.dimension === '3d' ? '3D' : '2D' }}</span>
         <span class="meta">{{ map.createdAt || '' }}</span>
         <button type="button" @click="emit('export', map)">导出 ZIP</button>
         <button type="button" @click="emit('remove', map)">删除</button>
@@ -33,16 +34,16 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 
-const props = defineProps<{ capabilities: any; maps: { projectId: string; name: string; createdAt: string }[] }>()
-const emit = defineEmits<{ enter: [id: string]; export: [map: any]; remove: [map: any] }>()
+const props = defineProps<{ capabilities: any; maps: { projectId: string; name: string; createdAt: string; dimension?: string }[] }>()
+const emit = defineEmits<{ enter: [payload: { id: string; dimension: '2d' | '3d' }]; export: [map: any]; remove: [map: any] }>()
 const dimension = ref<'2d' | '3d'>('2d')
 const entries = computed(() => {
   const cap = props.capabilities?.[dimension.value] || {}
   return [
-    { id: 'offline', title: '离线建图', group: '新建', enabled: !!cap.offline },
+    { id: 'offline', title: '离线建图', group: '新建', enabled: false },
     { id: 'online', title: '在线建图', group: '新建', enabled: !!cap.online },
-    { id: 'extend', title: '扩建', group: '增量', enabled: !!cap.incremental },
-    { id: 'patch', title: '更新局部', group: '增量', enabled: !!cap.incremental }
+    { id: 'extend', title: '扩建', group: '增量', enabled: false },
+    { id: 'patch', title: '更新局部', group: '增量', enabled: false }
   ]
 })
 const maps = computed(() => props.maps || [])

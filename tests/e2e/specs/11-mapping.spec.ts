@@ -24,64 +24,36 @@ function portOpen(port: number): Promise<boolean> {
   })
 }
 
-async function ensureMapping() {
-  if (await portOpen(19010)) return
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'forkai-mapping-e2e-'))
-  const lua = path.join(tmp, 'lua')
-  fs.mkdirSync(lua)
-  fs.writeFileSync(path.join(lua, 'range_odom_2d_server.lua'), 'return {}\n')
-  const cfg = {
-    server: { host: '127.0.0.1', port: 19010 },
-    dataDir: path.join(tmp, 'data'),
-    minFreeBytes: 1,
-    foxglove: { url: 'ws://127.0.0.1:8765', preflightTimeoutMs: 8000, startTimeoutMs: 8000 },
-    robot: { urdf: path.join(root, 'services/mapping/config/robot.urdf'), resourceId: 'fork-01' },
-    engines: {
-      cartographer: {
-        enabled: true,
-        bin: path.join(root, 'services/mapping/devtools/fake_cartographer.sh'),
-        protoRoot: path.join(root, 'services/mapping/devtools/proto'),
-        configDir: lua,
-        configBasename: 'range_odom_2d_server.lua',
-        profileRoot: path.join(root, 'services/mapping/devtools/sample-profiles'),
-        endpoint: '127.0.0.1:50061',
-        engineVersion: 'test',
-        buildId: 'test',
-        readyTimeoutMs: 10000,
-        stopTimeoutMs: 3000,
-        killTimeoutMs: 3000
-      }
-    }
+async function mappingReady(): Promise<boolean> {
+  if (!(await portOpen(19010))) return false
+  try {
+    const response = await fetch('http://127.0.0.1:19010/api/v1/mapping/status')
+    if (!response.ok) return false
+    const body = await response.json()
+    return body?.capabilities?.['2d']?.online === true && body?.capabilities?.['3d']?.online === true
+  } catch {
+    return false
   }
-  const cfgPath = path.join(tmp, 'mapping.config.yaml')
-  fs.writeFileSync(cfgPath, [
-    `server: {host: 127.0.0.1, port: 19010}`,
-    `dataDir: ${cfg.dataDir}`,
-    'minFreeBytes: 1',
-    'foxglove: {url: ws://127.0.0.1:8765, preflightTimeoutMs: 8000, startTimeoutMs: 8000}',
-    `robot: {urdf: ${cfg.robot.urdf}, resourceId: fork-01}`,
-    'engines:',
-    '  cartographer:',
-    '    enabled: true',
-    `    bin: ${cfg.engines.cartographer.bin}`,
-    `    protoRoot: ${cfg.engines.cartographer.protoRoot}`,
-    `    configDir: ${lua}`,
-    '    configBasename: range_odom_2d_server.lua',
-    `    profileRoot: ${cfg.engines.cartographer.profileRoot}`,
-    '    endpoint: 127.0.0.1:50061',
-    '    engineVersion: test',
-    '    buildId: test',
-    '    readyTimeoutMs: 10000',
-    '    stopTimeoutMs: 3000',
-    '    killTimeoutMs: 3000'
-  ].join('\n'))
-  const log = fs.openSync('/tmp/forkai-mapping-e2e.log', 'w')
+}
+
+async function ensureMapping() {
+  if (await mappingReady()) return
+  for (let i = 0; i < 25 && (await portOpen(19010)); i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 200))
+  }
+  if (await portOpen(19010)) throw new Error('19010 上的建图服务不是演示配置')
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'forkai-mapping-e2e-'))
+  const log = fs.openSync('/tmp/forkai-mapping-e2e.log', 'a')
   if (!(await portOpen(8765))) {
     children.push(spawn(py, ['devtools/fake_bridge.py', '--port', '8765'], { cwd: path.join(root, 'services/mapping'), stdio: ['ignore', log, log] }))
   }
   children.push(spawn(py, ['-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', '19010'], {
     cwd: path.join(root, 'services/mapping'),
-    env: { ...process.env, FORKAI_MAPPING_CONFIG: cfgPath },
+    env: {
+      ...process.env,
+      FORKAI_MAPPING_CONFIG: path.join(root, 'services/mapping/config/mapping.demo.yaml'),
+      FORKAI_MAPPING_DATA_DIR: path.join(tmp, 'data')
+    },
     stdio: ['ignore', log, log]
   }))
   for (let i = 0; i < 50; i++) {
@@ -104,8 +76,8 @@ test('用例11：建图页入口、预检和现场锁', async ({ page, request }
   await pairViaUI(page)
   await page.getByRole('link', { name: '建图' }).click()
   await expect(page).toHaveURL(/#\/mapping/)
-  await expect(page.getByRole('button', { name: '离线建图' })).toBeEnabled()
-  await expect(page.getByRole('button', { name: '扩建' })).toBeEnabled()
+  await expect(page.getByRole('button', { name: '离线建图' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: '扩建' })).toBeDisabled()
   const online = page.getByRole('button', { name: '在线建图' })
   await expect(online).toBeEnabled()
   await online.click()

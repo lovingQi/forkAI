@@ -26,7 +26,7 @@ export async function mappingStatus() {
 
 export async function mappingProfiles() {
   const { data } = await http.get('/mapping/profiles')
-  return data.profiles as { id: string; name: string; inputs: any }[]
+  return data.profiles as { id: string; name: string; dimension?: string; inputs: any }[]
 }
 
 export async function mappingRobot() {
@@ -76,7 +76,7 @@ export async function cancelMapping(id: string) {
 
 export async function mappingMaps() {
   const { data } = await http.get('/mapping/maps')
-  return data.maps as { projectId: string; name: string; createdAt: string; engineVersion: string }[]
+  return data.maps as { projectId: string; name: string; createdAt: string; engineVersion: string; dimension?: string }[]
 }
 
 export async function deleteMappingMap(id: string) {

@@ -1,0 +1,7 @@
+{
+  "executable": "../fake_traverse.sh",
+  "protoRoot": "../proto",
+  "engineVersion": "fake",
+  "buildId": "fake",
+  "profileRevision": "1"
+}

@@ -10,6 +10,9 @@ from .ros1_codec import decode
 
 LASER_SCHEMAS = {"sensor_msgs/LaserScan", "sensor_msgs/msg/LaserScan"}
 ODOM_SCHEMAS = {"nav_msgs/Odometry", "nav_msgs/msg/Odometry"}
+LIDAR_SCHEMAS = {"livox_ros_driver2/CustomMsg", "livox_ros_driver/CustomMsg"}
+IMU_SCHEMAS = {"sensor_msgs/Imu", "sensor_msgs/msg/Imu"}
+_SCHEMAS = {"range": LASER_SCHEMAS, "odometry": ODOM_SCHEMAS, "lidar": LIDAR_SCHEMAS, "imu": IMU_SCHEMAS}
 
 
 def _stamp_ns(decoded: dict) -> int:
@@ -71,7 +74,7 @@ async def observe_topics(url: str, specs: list[dict], timeout: float, model: dic
 
 
 def _channel_for(client: FoxgloveClient, spec: dict):
-    allowed = LASER_SCHEMAS if spec["kind"] == "range" else ODOM_SCHEMAS
+    allowed = _SCHEMAS[spec["kind"]]
     for channel in client.channels.values():
         if channel.get("topic") == spec["topic"] and channel.get("schemaName") in allowed:
             return channel

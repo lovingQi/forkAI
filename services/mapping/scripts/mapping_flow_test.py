@@ -48,6 +48,7 @@ class Stack:
     def __init__(self, tmp: Path):
         self.tmp = tmp
         self.engine_port = free_port()
+        self.traverse_port = free_port()
         self.api_port = free_port()
         self.procs: list[subprocess.Popen] = []
         self.cfg = tmp / "mapping.config.yaml"
@@ -75,6 +76,12 @@ class Stack:
                 "readyTimeoutMs": 10000,
                 "stopTimeoutMs": 3000,
                 "killTimeoutMs": 3000,
+            }, "traverse": {
+                "root": str(ROOT / "devtools" / "fake-traverse"),
+                "endpoint": f"127.0.0.1:{self.traverse_port}",
+                "readyTimeoutMs": 10000,
+                "imuAccelScale": 9.80665,
+                "inputs": {"lidar": "/livox/lidar", "imu": "/livox/imu"},
             }},
         }
         self.cfg.write_text(yaml.safe_dump(data), encoding="utf-8")
@@ -109,6 +116,7 @@ class Stack:
             except subprocess.TimeoutExpired:
                 proc.kill()
         kill_matching("fake_engine.py")
+        kill_matching("fake_traverse_engine.py")
 
     @property
     def base(self) -> str:
@@ -184,6 +192,12 @@ async def scenario_happy(stack: Stack) -> None:
         exported = await client.get(f"{stack.base}/maps/{done['projectId']}/export.zip")
         names = zipfile.ZipFile(BytesIO(exported.content)).namelist()
         check("ZIP 只有工程清单和两份产物", set(names) == {"project.json", "map.json", "mapping_state.mcap"}, str(names))
+        preview = await client.get(f"{stack.base}/maps/{done['projectId']}/preview.png")
+        sys.path.insert(0, str(ROOT))
+        from app.preview.png import decode_gray8
+        _width, _height, pixels = decode_gray8(preview.content)
+        occupied = sum(1 for pixel in pixels if 0 < pixel < 250)
+        check("结果预览图有占据像素", preview.status_code == 200 and occupied >= 100, str(occupied))
 
 
 async def scenario_cancel(stack: Stack) -> None:
@@ -356,6 +370,52 @@ async def scenario_offline(stack: Stack) -> None:
         check("离线保存完成", saved.get("status") == "completed", str(saved.get("error")))
 
 
+def draft3d() -> dict:
+    return {
+        "dimension": "3d", "name": "三维", "profileId": "lidar-inertial-3d",
+        "source": {"kind": "online"}, "objective": {"kind": "create"},
+        "inputs": {
+            "lidar": {"sensorId": "lidar", "topic": "/livox/lidar"},
+            "imu": {"sensorId": "imu", "topic": "/livox/imu"},
+        },
+    }
+
+
+async def scenario_3d(stack: Stack) -> None:
+    async with httpx.AsyncClient(timeout=40) as client:
+        status = (await client.get(f"{stack.base}/status")).json()
+        check("3D 引擎可用", status["capabilities"]["3d"]["online"] is True, str(status["engines"]))
+        ready = await client.post(f"{stack.base}/drafts/validate", json=draft3d())
+        check("3D 预检通过", ready.status_code == 200 and ready.json().get("status") == "ready", ready.text[:300])
+        created = await client.post(f"{stack.base}/tasks", json=draft3d())
+        check("3D 任务已创建", created.status_code == 201, created.text[:240])
+        if created.status_code != 201:
+            return
+        task_id = created.json()["id"]
+        running = await wait_task(client, stack.base, task_id, {"running", "failed"})
+        if running.get("status") != "running":
+            check("3D 已收到数据", False, str(running.get("error")))
+            return
+        await asyncio.sleep(2)
+        current = (await client.get(f"{stack.base}/tasks/{task_id}")).json()
+        check("3D 已收到数据", (current.get("stats") or {}).get("received", 0) > 0, str(current.get("stats")))
+        await client.post(f"{stack.base}/tasks/{task_id}/finish")
+        done = await wait_task(client, stack.base, task_id, {"completed", "failed"}, 40)
+        check("3D 保存完成", done.get("status") == "completed", str(done.get("error")))
+        if done.get("status") != "completed":
+            return
+        exported = await client.get(f"{stack.base}/maps/{done['projectId']}/export.zip")
+        names = zipfile.ZipFile(BytesIO(exported.content)).namelist()
+        check("3D ZIP 含工程目录", "map_project/current" in names, str(names))
+
+
+async def scenario_3d_imu_missing(stack: Stack) -> None:
+    async with httpx.AsyncClient(timeout=20) as client:
+        await control({"cmd": "drop", "topic": "/livox/imu"})
+        ready = await client.post(f"{stack.base}/drafts/validate", json=draft3d())
+        check("停掉 IMU 后预检失败", ready.status_code == 200 and ready.json().get("status") == "error", ready.text[:240])
+
+
 async def main() -> int:
     if port_open(8765):
         print("[MAP-FLOW] FAIL  8765 已被占用，跳过流程测试", flush=True)
@@ -390,6 +450,14 @@ async def main() -> int:
         await scenario_offline(stack)
     finally:
         stack.stop()
+    for scenario in (scenario_3d, scenario_3d_imu_missing):
+        stack = Stack(tmp)
+        stack.write_config()
+        try:
+            stack.start()
+            await scenario(stack)
+        finally:
+            stack.stop()
     stack = Stack(tmp)
     stack.write_config()
     try:

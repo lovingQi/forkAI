@@ -18,6 +18,7 @@ __pycache__/
 services/core/.venv/
 services/mapping/.venv/
 services/mapping/data/
+services/mapping/data-demo/
 
 # forkAI V2: 模型与二进制（部署时由 install.sh 下载/编译，不入库）
 services/core/models/piper/

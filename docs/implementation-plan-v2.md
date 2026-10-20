@@ -176,6 +176,7 @@ docs/requirements-v2.md, architecture-v2.md, api-v2.md, user-manual.md, acceptan
 - [x] forkai-mapping：2D 在线任务、Foxglove 接入、引擎进程、测试 proto 上的假引擎、UMCL 与 robospace 二维 ZIP
 - [x] core 代理、现场锁门控、实时 WebSocket 鉴权
 - [x] 建图页：四入口、准备检查、实时栅格、内嵌点动、结果与导出
+- [x] 开发机演示环境：`start-mapping-demo.sh` 加假引擎，可在本机走完 2D 在线和 3D 在线。这是假引擎证据，不关闭核对点
 - [ ] 对照同事 proto 的核对点 A/B/C，以及 robospace 实际导入 ZIP（核对点 D 的跨项目实测）
 - [ ] 2D 离线、2D 增量、3D 在线、3D 离线、3D 增量
 - [ ] RK3588 真引擎与真车开车建图

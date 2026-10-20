@@ -3,6 +3,7 @@
 
 用法（services/mapping 目录下）：.venv/bin/python scripts/mapping_unit_test.py
 """
+import json
 import sys
 import time
 from pathlib import Path
@@ -142,6 +143,51 @@ def test_plan2d() -> None:
     check("计划哈希稳定", len(plan_sha256([], state, None)) == 64)
 
 
+def test_demo_codecs() -> None:
+    from app.assets.map_store import umcl_preview_png
+    from app.assets.zip_export import export_zip
+    from app.ingest.livox import imu_vector, pack_custom
+    from app.ingest.ros1_codec import decode, decode_livox_custom, encode_imu, encode_livox_custom
+    import importlib.util
+    import tempfile
+    encoded = encode_livox_custom({
+        "sec": 1, "nsec": 2, "frame_id": "lidar", "timebase": 3, "lidar_id": 1,
+        "points": [{"offset_time": 4, "x": 1.5, "y": -2.0, "z": 0.3, "reflectivity": 9, "tag": 2, "line": 3}],
+    })
+    parsed = decode_livox_custom(encoded)
+    check("CustomMsg 往返", parsed["header"]["frame_id"] == "lidar" and abs(parsed["points"][0]["x"] - 1.5) < 1e-5 and parsed["points"][0]["line"] == 3)
+    packed = pack_custom(parsed)
+    check("Livox 打包每点 24 字节", len(packed) == 24)
+    imu = encode_imu({
+        "sec": 1, "nsec": 0, "frame_id": "imu",
+        "angular_velocity": {"x": 0.0, "y": 0.0, "z": 0.2},
+        "linear_acceleration": {"x": 0.0, "y": 0.0, "z": 1.0},
+    })
+    vector = imu_vector(decode("sensor_msgs/Imu", imu), 9.80665)
+    check("Imu 往返并换算加速度", abs(vector[2] - 9.80665) < 1e-6 and abs(vector[5] - 0.2) < 1e-6)
+    spec = importlib.util.spec_from_file_location("fake_scene3d", ROOT / "devtools" / "fake_scene3d.py")
+    scene = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(scene)
+    hit = scene.scan_2d({"x": 5.0, "y": 8.0, "yaw": 0.0}, {"x": 0.0, "y": 0.0, "yaw": 0.0}, [0.0])
+    check("水平射线打到东墙", abs(hit[0] - 25.0) < 0.05, str(hit[0]))
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "project.json").write_text(json.dumps({
+            "representations": [{"role": "engine-state", "kind": "engine-state", "path": "map_project"}],
+        }), encoding="utf-8")
+        folder = root / "map_project"
+        folder.mkdir()
+        (folder / "current").write_text("v001\n", encoding="utf-8")
+        names = __import__("zipfile").ZipFile(__import__("io").BytesIO(export_zip(root))).namelist()
+        check("目录产物写入 ZIP", "map_project/current" in names, str(names))
+    preview = umcl_preview_png({
+        "Header": "umcl-map", "MapRes": 0.05, "MinPose": "0 0", "MaxPose": "1000 0",
+        "NumPoints": 2, "ObsPoints": [[0, 0], [1000, 0]],
+    })
+    _w, _h, pixels = decode_gray8(preview)
+    check("UMCL 预览有占据像素", any(pixel == 100 for pixel in pixels))
+
+
 def main() -> int:
     test_time()
     test_scan()
@@ -152,6 +198,7 @@ def main() -> int:
     test_png()
     test_compose()
     test_plan2d()
+    test_demo_codecs()
     failed = RESULTS.count(False)
     print(f"[MAP-UNIT] {len(RESULTS) - failed}/{len(RESULTS)} passed", flush=True)
     return 1 if failed else 0

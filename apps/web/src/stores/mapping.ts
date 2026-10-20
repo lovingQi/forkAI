@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { activeMappingTask, mappingActivity, mappingMaps, mappingProfiles, mappingStatus, type MappingTask } from '@/api/mapping'
+import { activeMappingTask, getMappingTask, mappingActivity, mappingMaps, mappingProfiles, mappingStatus, type MappingTask } from '@/api/mapping'
 
 export const useMappingStore = defineStore('mapping', {
   state: () => ({
@@ -35,8 +35,10 @@ export const useMappingStore = defineStore('mapping', {
         const latest = await activeMappingTask()
         if (generation.value !== current) return page.latestSequence
         if (latest && latest.id === this.task.id) this.task = latest
-        else if (!latest && this.task && !['completed', 'failed', 'cancelled', 'interrupted'].includes(this.task.status)) {
-          this.task = latest
+        else if (!latest && this.task) {
+          const fresh = await getMappingTask(this.task.id)
+          if (generation.value !== current) return page.latestSequence
+          this.task = fresh
         }
         return page.latestSequence
       } catch {

@@ -45,11 +45,18 @@ class TraverseClient:
             raise MappingError("MAPPING_TASK_START_FAILED", "没有拿到 3D 会话编号")
         return self.session_id
 
-    async def add_batch(self, sequence: int, count: int) -> None:
-        resp = await self.stub.AddSensorDataBatch(self.pb2.BatchRequest(
-            session_id=self.session_id, batch_sequence=sequence, count=count,
-        ), timeout=30)
-        if int(resp.accepted_batch_sequence) != sequence or int(resp.accepted_sensor_messages) != count:
+    async def add_batch(self, sequence: int, messages: list[dict]) -> None:
+        req = self.pb2.BatchRequest(session_id=self.session_id, batch_sequence=sequence, count=len(messages))
+        for item in messages:
+            msg = req.messages.add()
+            msg.sensor_id = item["sensor_id"]
+            msg.kind = item["kind"]
+            msg.stamp_ns = int(item["stamp_ns"])
+            msg.point_step = int(item.get("point_step") or 0)
+            msg.point_count = int(item.get("point_count") or 0)
+            msg.data = item.get("data") or b""
+        resp = await self.stub.AddSensorDataBatch(req, timeout=30)
+        if int(resp.accepted_batch_sequence) != sequence or int(resp.accepted_sensor_messages) != len(messages):
             raise MappingError("MAPPING_TASK_INTERRUPTED", "3D 批次没有被完整接收")
 
     async def finish(self) -> None:
@@ -67,8 +74,11 @@ class TraverseClient:
         resp = await self.stub.CheckIncrementalAlignment(self.pb2.AlignRequest(session_id=self.session_id, confirm=confirm), timeout=30)
         return resp.state
 
-    async def snapshot(self, after: int = 0):
-        return await self.stub.GetMapSnapshot(self.pb2.SnapshotRequest(session_id=self.session_id, max_points=50000, after_revision=after), timeout=30)
+    async def snapshot(self, max_points: int = 30000, after_revision: int = 0) -> tuple[int, bytes, int]:
+        resp = await self.stub.GetMapSnapshot(self.pb2.SnapshotRequest(
+            session_id=self.session_id, max_points=max_points, after_revision=after_revision,
+        ), timeout=30)
+        return int(resp.revision), bytes(resp.points), int(resp.point_count)
 
     async def delete(self) -> None:
         try:

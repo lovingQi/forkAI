@@ -11,7 +11,7 @@
     <MappingPrepare
       v-else-if="step === 'prepare'"
       :profiles="store.profiles"
-      :mode="prepareMode"
+      :dimension="prepareDimension"
       @back="step = 'home'"
       @start="onStart"
     />
@@ -55,7 +55,7 @@ const meta = ref<any>(null)
 const trajectory = ref<number[][]>([])
 const pose = ref<any>(null)
 const scan = ref<number[][]>([])
-const cloudPoints = ref<number[]>([])
+const cloudPoints = ref<Float32Array>(new Float32Array())
 const result = ref<any>(null)
 const live = ref<{ fit: () => void } | null>(null)
 let closeLive: (() => void) | null = null
@@ -63,15 +63,20 @@ let pollTimer: number | null = null
 const generation = { value: 0 }
 let cursor = 0
 
-const prepareMode = ref<'online' | 'offline' | 'extend' | 'patch'>('online')
-function onEnter(id: string) {
-  if (id === 'online' || id === 'offline' || id === 'extend' || id === 'patch') {
-    prepareMode.value = id as typeof prepareMode.value
-    step.value = 'prepare'
-  }
+const prepareDimension = ref<'2d' | '3d'>('2d')
+function onEnter(payload: { id: string; dimension: '2d' | '3d' }) {
+  if (payload.id !== 'online') return
+  prepareDimension.value = payload.dimension
+  step.value = 'prepare'
 }
 async function onStart(draft: Record<string, unknown>) {
   try {
+    cloudPoints.value = new Float32Array()
+    bitmap.value = null
+    meta.value = null
+    trajectory.value = []
+    pose.value = null
+    scan.value = []
     store.task = await startMapping(draft)
     step.value = 'running'
     bindLive()
@@ -94,6 +99,13 @@ function bindLive() {
       const view = new DataView(buffer)
       const headLen = view.getUint32(0, true)
       const head = JSON.parse(new TextDecoder().decode(new Uint8Array(buffer, 4, headLen)))
+      if (head.kind === 'cloud') {
+        const bytes = new Uint8Array(buffer, 4 + headLen)
+        const copy = new Uint8Array(bytes.byteLength)
+        copy.set(bytes)
+        cloudPoints.value = new Float32Array(copy.buffer)
+        return
+      }
       const png = buffer.slice(4 + headLen)
       createImageBitmap(new Blob([png], { type: 'image/png' })).then((image) => {
         bitmap.value = image
@@ -105,16 +117,19 @@ function bindLive() {
   })
 }
 async function finishStep() {
-  if (!store.task) return
-  if (store.task.status === 'completed' && store.task.projectId) {
+  const task = store.task
+  if (!task) return
+  if (task.status === 'completed' && task.projectId) {
+    const projectId = task.projectId
+    const name = task.name
     await store.refresh()
-    const map = store.maps.find((item) => item.projectId === store.task?.projectId)
-    result.value = map || { projectId: store.task.projectId, name: store.task.name }
+    const map = store.maps.find((item) => item.projectId === projectId)
+    result.value = map || { projectId, name, createdAt: task.createdAt }
     step.value = 'result'
-  } else if (store.task.status === 'failed') {
-    ElMessage.error(store.task.error?.message || '建图失败')
+  } else if (task.status === 'failed') {
+    ElMessage.error(task.error?.message || '建图失败')
     step.value = 'home'
-  } else if (store.task.status === 'cancelled') {
+  } else if (task.status === 'cancelled') {
     step.value = 'home'
   }
 }

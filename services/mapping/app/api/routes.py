@@ -10,6 +10,7 @@ from ..domain.draft import parse_draft
 from ..domain.task import TERMINAL, MappingTask
 from ..errors import MappingError
 from ..ingest.preflight import run_preflight
+from ..ingest.preflight3d import run_preflight_3d
 from ..session.cartographer_online import OnlineSession
 
 router = APIRouter(prefix="/api/v1/mapping")
@@ -46,6 +47,8 @@ async def robot(request: Request):
 async def validate(request: Request):
     ctx = _ctx(request)
     draft = parse_draft(await request.json(), ctx.status()["capabilities"])
+    if draft["dimension"] == "3d":
+        return await run_preflight_3d(draft, ctx.cfg, ctx.profiles, ctx.scheduler)
     return await run_preflight(draft, ctx.cfg, ctx.profiles, ctx.urdf, ctx.scheduler, ctx.recordings)
 
 

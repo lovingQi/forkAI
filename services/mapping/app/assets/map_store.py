@@ -17,6 +17,29 @@ from ..preview.png import encode_gray8
 from .umcl import is_umcl_json_map
 
 
+def umcl_preview_png(umcl: dict) -> bytes:
+    xs = []
+    ys = []
+    for column in umcl.get("ObsPoints") or []:
+        if not isinstance(column, list) or len(column) < 2:
+            continue
+        for y in column[1:]:
+            xs.append(float(column[0]))
+            ys.append(float(y))
+    side = 128
+    pixels = bytearray([255]) * (side * side)
+    if xs:
+        min_x, max_x = min(xs), max(xs)
+        min_y, max_y = min(ys), max(ys)
+        span = max(max_x - min_x, max_y - min_y, 1.0)
+        scale = (side - 1) / span
+        for x, y in zip(xs, ys):
+            column = min(side - 1, max(0, int((x - min_x) * scale)))
+            row = min(side - 1, max(0, int((max_y - y) * scale)))
+            pixels[row * side + column] = 100
+    return encode_gray8(side, side, bytes(pixels))
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with open(path, "rb") as f:
@@ -150,11 +173,16 @@ class MapStore:
             project = json.loads(project_path.read_text(encoding="utf-8"))
             meta_path = child / "meta.json"
             meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.is_file() else {}
+            dimension = meta.get("dimension")
+            if dimension not in {"2d", "3d"}:
+                roles = {item.get("role") for item in project.get("representations") or []}
+                dimension = "3d" if "localization-map-3d" in roles else "2d"
             rows.append({
                 "projectId": project["projectId"],
                 "name": project["name"],
                 "createdAt": meta.get("createdAt"),
                 "engineVersion": meta.get("engineVersion"),
+                "dimension": dimension,
             })
         rows.sort(key=lambda item: item.get("createdAt") or "", reverse=True)
         return rows
@@ -191,6 +219,12 @@ class MapStore:
         if endpoint:
             project["onlineSource"] = {"robotResourceId": robot_resource_id, "endpoint": endpoint}
         validate_project(project)
+        try:
+            umcl = json.loads((staging / "map_2d.json").read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise MappingError("MAPPING_RESULT_INVALID", "map_2d.json 不是合法 JSON") from exc
+        if not is_umcl_json_map(umcl):
+            raise MappingError("MAPPING_RESULT_INVALID", "map_2d.json 不是合法 UMCL 地图")
         final = self.root / project_id
         incoming = self.root / f".incoming-{project_id}"
         if incoming.exists():
@@ -200,6 +234,16 @@ class MapStore:
             shutil.copy2(staging / name, incoming / name)
         shutil.copytree(staging / "map_project", incoming / "map_project")
         (incoming / "project.json").write_text(json.dumps(project, ensure_ascii=False, indent=2), encoding="utf-8")
+        (incoming / "preview.png").write_bytes(umcl_preview_png(umcl))
+        meta = {
+            "createdAt": datetime.now(timezone.utc).isoformat(),
+            "taskId": task["id"],
+            "engineVersion": (task.get("snapshot") or {}).get("engineVersion"),
+            "buildId": (task.get("snapshot") or {}).get("buildId"),
+            "dimension": "3d",
+        }
+        (incoming / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+        _fsync_tree(incoming)
         os.rename(incoming, final)
         return project_id
 
