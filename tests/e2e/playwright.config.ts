@@ -10,6 +10,9 @@ export default defineConfig({
   use: {
     baseURL: 'http://127.0.0.1:19000',
     headless: true,
+    contextOptions: {
+      reducedMotion: 'reduce'
+    },
     screenshot: 'only-on-failure',
     launchOptions: {
       args: [

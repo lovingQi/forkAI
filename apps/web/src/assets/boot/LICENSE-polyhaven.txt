@@ -1,0 +1,8 @@
+Poly Haven plywood texture
+
+Author: Rob Tuytel
+Source: https://polyhaven.com/a/plywood
+License: CC0 1.0 Universal
+https://creativecommons.org/publicdomain/zero/1.0/
+
+The JPEG files in this directory are derived from the 1K maps (diffuse, OpenGL normal, roughness), resized to 512×512.

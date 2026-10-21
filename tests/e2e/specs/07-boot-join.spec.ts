@@ -20,3 +20,14 @@ test('用例7：开机自检后进入配对，车载屏显示二维码', async (
   expect(joined.ok()).toBeTruthy()
   await expect(page.getByText('手机已接入')).toBeVisible({ timeout: 8000 })
 })
+
+test.describe('品牌开场', () => {
+  test.use({ contextOptions: { reducedMotion: 'no-preference' } })
+
+  test('打开页面先看到品牌开场，自检尚未开始', async ({ page }) => {
+    await page.goto('/')
+    await expect(page.getByTestId('boot-intro')).toBeVisible()
+    await expect(page.getByText('[ OK ] core')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '显示/刷新配对码' })).toHaveCount(0)
+  })
+})

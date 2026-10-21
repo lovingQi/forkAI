@@ -1,6 +1,7 @@
 <template>
-  <div class="boot">
-    <div v-if="showAnim" class="card">
+  <div class="boot" :class="{ 'is-intro': phase === 'intro' }">
+    <BootIntro v-if="phase === 'intro'" @done="beginCheck" @fallback="beginCheck" />
+    <div ref="cardEl" class="card" data-testid="boot-card">
       <div class="mark">FORKAI</div>
       <div class="line">{{ lines.core }}</div>
       <div class="line">{{ lines.jarvis }}</div>
@@ -8,14 +9,14 @@
       <p v-if="error" class="fail">{{ error }}</p>
       <el-button v-if="error" @click="run">重试</el-button>
     </div>
-    <p v-else-if="error" class="fail plain">{{ error }} <el-button @click="run">重试</el-button></p>
   </div>
 </template>
 
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { getSelfCheck, joinByTicket, pairLocal } from '@/api/console'
+import { getSelfCheck } from '@/api/console'
+import BootIntro from '@/components/boot/BootIntro.vue'
 import { useConsoleStore } from '@/stores/console'
 import { useRobotStore } from '@/stores/robot'
 import { useSessionStore } from '@/stores/session'
@@ -25,7 +26,9 @@ const consoleStore = useConsoleStore()
 const session = useSessionStore()
 const robot = useRobotStore()
 const params = new URLSearchParams(window.location.search)
-const showAnim = ref(params.has('kiosk') || consoleStore.isKiosk)
+const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+const phase = ref<'intro' | 'check'>(reduceMotion ? 'check' : 'intro')
+const cardEl = ref<HTMLElement | null>(null)
 const error = ref('')
 const lines = reactive({
   core: '[ .. ] core',
@@ -70,7 +73,6 @@ async function run() {
   const join = params.get('join')
   try {
     if (kiosk) {
-      showAnim.value = true
       if (!session.paired) await session.pairAsLocal(kiosk)
       consoleStore.setKiosk(kiosk)
     } else if (join && !session.paired) {
@@ -98,16 +100,21 @@ async function run() {
     error.value = '自检未通过'
     return
   }
-  if (!showAnim.value) {
-    await enter()
-    return
-  }
   window.setTimeout(() => {
     void enter()
   }, 700)
 }
 
-void run()
+function beginCheck() {
+  if (phase.value === 'check') return
+  cardEl.value?.removeAttribute('style')
+  phase.value = 'check'
+  void run()
+}
+
+onMounted(() => {
+  if (phase.value === 'check') void run()
+})
 </script>
 
 <style scoped>
@@ -115,12 +122,18 @@ void run()
   height: 100%;
   display: grid;
   place-items: center;
+  position: relative;
+}
+.boot.is-intro .card {
+  opacity: 0;
+  pointer-events: none;
 }
 .card {
   width: min(560px, 92vw);
   padding: 28px;
   border: 1px solid var(--hud-line-strong, rgba(182, 255, 59, 0.55));
   font-family: var(--hud-mono, Consolas, monospace);
+  background: var(--hud-bg, #050806);
 }
 .mark {
   color: var(--hud-accent, #b6ff3b);
@@ -133,8 +146,5 @@ void run()
 }
 .fail {
   color: var(--hud-danger, #ff4d4f);
-}
-.plain {
-  font-family: var(--hud-mono, Consolas, monospace);
 }
 </style>

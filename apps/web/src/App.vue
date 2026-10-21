@@ -1,6 +1,6 @@
 <template>
   <div class="app-root">
-    <header class="app-header">
+    <header v-if="route.name !== 'boot'" class="app-header">
       <div class="brand"><span class="brand-mark">FORKAI</span><span class="brand-sub">// 玖物语音控制</span></div>
       <div class="meta">
         <span class="veh">{{ session.vehicleId || '未选车' }}</span>
@@ -33,7 +33,7 @@
 
     <div class="app-body" :class="{ 'nav-bottom': navBottom }">
       <AppNav v-if="showNav && !navBottom" />
-      <main class="app-main" :class="{ 'is-dash': isDash }">
+      <main class="app-main" :class="{ 'is-dash': isDash, 'is-boot': route.name === 'boot' }">
         <router-view />
       </main>
       <AppNav v-if="showNav && navBottom" />
@@ -259,6 +259,7 @@ body,
 .app-body.nav-bottom { flex-direction: column; }
 .app-main { flex: 1; min-width: 0; min-height: 0; padding: 12px; display: flex; flex-direction: column; }
 .app-main.is-dash { padding: 0; }
+.app-main.is-boot { padding: 0; }
 .app-main > * { flex: 1; min-height: 0; }
 .auth-code {
   font-family: var(--hud-mono, Consolas, monospace);
