@@ -1,7 +1,7 @@
 <template>
   <div class="app-root">
     <header v-if="route.name !== 'boot'" class="app-header">
-      <div class="brand"><span class="brand-mark">FORKAI</span><span class="brand-sub">// 玖物语音控制</span></div>
+      <div class="brand"><span class="brand-mark">EASYFORK</span><span class="brand-sub">玖物智能叉车</span></div>
       <div class="meta">
         <span class="veh">{{ session.vehicleId || '未选车' }}</span>
         <el-tag :type="robot.connected ? 'success' : 'danger'" size="small" effect="dark">

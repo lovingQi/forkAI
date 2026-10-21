@@ -1,21 +1,27 @@
 <template>
-  <span class="brand-lockup" v-html="svg" />
+  <span class="brand-lockup">
+    <img :src="logoUrl" alt="" />
+  </span>
 </template>
 
 <script setup lang="ts">
-import { lockupSvg } from './lockup'
-
-const svg = lockupSvg()
+import logoUrl from '@/assets/boot/logo.png'
 </script>
 
 <style scoped>
 .brand-lockup {
-  display: block;
-  line-height: 0;
-}
-.brand-lockup :deep(svg) {
+  display: flex;
   width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+}
+.brand-lockup img {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
   height: auto;
+  object-fit: contain;
   display: block;
 }
 </style>

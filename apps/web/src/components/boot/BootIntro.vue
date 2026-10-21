@@ -18,8 +18,8 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import diffUrl from '@/assets/boot/plywood_diff.jpg'
 import norUrl from '@/assets/boot/plywood_nor.jpg'
 import roughUrl from '@/assets/boot/plywood_rough.jpg'
+import logoAssetUrl from '@/assets/boot/logo.png'
 import BrandLockup from './BrandLockup.vue'
-import { lockupSvg } from './lockup'
 
 const emit = defineEmits<{ done: []; fallback: [] }>()
 
@@ -66,8 +66,7 @@ let camera: THREE.PerspectiveCamera | null = null
 let truck: THREE.Group | null = null
 let screen: THREE.Mesh | null = null
 let doorPivot: THREE.Group | null = null
-let logoTexture: THREE.CanvasTexture | null = null
-let logoUrl = ''
+let logoTexture: THREE.Texture | null = null
 let resizeObserver: ResizeObserver | null = null
 let card: HTMLElement | null = null
 let natural = { left: 0, top: 0, width: 560, height: 180 }
@@ -233,7 +232,7 @@ function buildCrate(logo: THREE.Texture, maps: THREE.Texture[] | null) {
     polygonOffsetFactor: -1,
     polygonOffsetUnits: -1
   })
-  const logoMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.22, 0.334), logoMat)
+  const logoMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.22, (1.22 * 72) / 603), logoMat)
   logoMesh.position.set(CRATE_W / 2 + 0.03, wallY, 0)
   logoMesh.rotation.y = Math.PI / 2
   root.add(logoMesh)
@@ -491,25 +490,17 @@ function tick(now: number) {
 }
 
 function loadLogo() {
-  const canvas = document.createElement('canvas')
-  canvas.width = 1024
-  canvas.height = 280
-  const texture = new THREE.CanvasTexture(canvas)
+  const texture = new THREE.Texture()
   texture.colorSpace = THREE.SRGBColorSpace
+  if (renderer) texture.anisotropy = renderer.capabilities.getMaxAnisotropy()
   logoTexture = texture
   const image = new Image()
-  logoUrl = URL.createObjectURL(new Blob([lockupSvg()], { type: 'image/svg+xml' }))
   image.onload = () => {
     if (stopped) return
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-    ctx.clearRect(0, 0, canvas.width, canvas.height)
-    ctx.drawImage(image, 0, 0, canvas.width, canvas.height)
+    texture.image = image
     texture.needsUpdate = true
-    URL.revokeObjectURL(logoUrl)
-    logoUrl = ''
   }
-  image.src = logoUrl
+  image.src = logoAssetUrl
   return texture
 }
 
@@ -615,7 +606,6 @@ function dispose() {
   if (raf) cancelAnimationFrame(raf)
   resizeObserver?.disconnect()
   resizeObserver = null
-  if (logoUrl) URL.revokeObjectURL(logoUrl)
   logoTexture?.dispose()
   gradientTexture?.dispose()
   woodTextures.forEach((texture) => texture.dispose())

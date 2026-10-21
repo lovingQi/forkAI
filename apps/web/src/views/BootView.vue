@@ -2,7 +2,7 @@
   <div class="boot" :class="{ 'is-intro': phase === 'intro' }">
     <BootIntro v-if="phase === 'intro'" @done="beginCheck" @fallback="beginCheck" />
     <div ref="cardEl" class="card" data-testid="boot-card">
-      <div class="mark">FORKAI</div>
+      <div class="mark">EASYFORK</div>
       <div class="line">{{ lines.core }}</div>
       <div class="line">{{ lines.jarvis }}</div>
       <div class="line">{{ lines.ros }}</div>

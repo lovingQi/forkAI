@@ -1,7 +1,7 @@
 <template>
   <div class="gate">
     <div class="gate-card">
-      <div class="term-bar">FORKAI // VOICE CONTROL TERMINAL · V2</div>
+      <div class="term-bar">EASYFORK // VOICE CONTROL TERMINAL · V2</div>
       <div class="boot">
         <div class="boot-line">{{ coreLine }}</div>
         <div class="boot-line d2">{{ pairLine }}</div>
