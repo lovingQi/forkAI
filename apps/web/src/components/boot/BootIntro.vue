@@ -26,8 +26,10 @@ const CRATE_W = 1.5
 const CRATE_H = 1.6
 const CRATE_D = 1.7
 const FLOOR_Y = 0.28
+const EDGE = 0.045
+const DRIVE_Y = FLOOR_Y + EDGE
 const PANEL_LEN = 1.6
-const DOOR_ANGLE = Math.PI / 2 + Math.asin(FLOOR_Y / PANEL_LEN)
+const DOOR_ANGLE = Math.PI / 2 + Math.asin(DRIVE_Y / PANEL_LEN)
 const TRUCK_SCALE = 0.55
 const FLOOR_LEN = 0.85
 const RAMP_LEN = PANEL_LEN
@@ -65,7 +67,7 @@ let camCurve: THREE.CatmullRomCurve3 | null = null
 let lookCurve: THREE.CatmullRomCurve3 | null = null
 
 const inside = new THREE.Vector3(0, FLOOR_Y, -0.1)
-const hinge = new THREE.Vector3(0, FLOOR_Y, CRATE_D / 2)
+const hinge = new THREE.Vector3(0, DRIVE_Y, CRATE_D / 2)
 const rampTip = new THREE.Vector3()
 const rampScratch = new THREE.Vector3()
 const pose = new THREE.Vector3()
@@ -133,7 +135,7 @@ function face(pitch: number) {
 
 function surfacePoint(sigma: number, out: THREE.Vector3) {
   if (sigma <= 0) {
-    out.set(0, FLOOR_Y, hinge.z + sigma)
+    out.set(0, DRIVE_Y, hinge.z + sigma)
     return
   }
   if (sigma <= PANEL_LEN) {
@@ -203,7 +205,9 @@ function buildCrate(logo: THREE.Texture, maps: THREE.Texture[] | null) {
   const palletMat = woodMaterial(maps, 0x8a6a4c)
   const metal = new THREE.MeshStandardMaterial({ color: 0x9aa1a8, roughness: 0.35, metalness: 0.72 })
   addBox(root, 1.7, 0.2, 1.7, 0, 0.1, 0, palletMat)
-  addBox(root, CRATE_W, 0.08, CRATE_D, 0, FLOOR_Y - 0.04, 0, wood)
+  const floorBottom = FLOOR_Y - 0.08
+  const floorHeight = DRIVE_Y - floorBottom
+  addBox(root, CRATE_W, floorHeight, CRATE_D, 0, floorBottom + floorHeight / 2, 0, wood)
 
   const wallY = FLOOR_Y + CRATE_H / 2
   const t = 0.08
@@ -212,17 +216,16 @@ function buildCrate(logo: THREE.Texture, maps: THREE.Texture[] | null) {
   addBox(root, CRATE_W, CRATE_H, t, 0, wallY, -CRATE_D / 2 + t / 2, wood)
   addBox(root, CRATE_W, t, CRATE_D, 0, FLOOR_Y + CRATE_H - t / 2, 0, wood)
 
-  const edge = 0.045
-  const frontZ = CRATE_D / 2 + edge / 2
-  const sideX = CRATE_W / 2 + edge / 2
-  addBox(root, CRATE_W + edge, edge, edge, 0, FLOOR_Y + edge / 2, frontZ, metal)
-  addBox(root, CRATE_W + edge, edge, edge, 0, FLOOR_Y + CRATE_H - edge / 2, frontZ, metal)
-  addBox(root, edge, CRATE_H, edge, -CRATE_W / 2, wallY, frontZ, metal)
-  addBox(root, edge, CRATE_H, edge, CRATE_W / 2, wallY, frontZ, metal)
-  addBox(root, edge, edge, CRATE_D + edge, sideX, FLOOR_Y + edge / 2, 0, metal)
-  addBox(root, edge, edge, CRATE_D + edge, sideX, FLOOR_Y + CRATE_H - edge / 2, 0, metal)
-  addBox(root, edge, CRATE_H, edge, sideX, wallY, -CRATE_D / 2, metal)
-  addBox(root, edge, CRATE_H, edge, sideX, wallY, CRATE_D / 2, metal)
+  const frontZ = CRATE_D / 2 + EDGE / 2
+  const sideX = CRATE_W / 2 + EDGE / 2
+  addBox(root, CRATE_W + EDGE, EDGE, EDGE, 0, DRIVE_Y - EDGE / 2, CRATE_D / 2 - EDGE / 2, metal)
+  addBox(root, CRATE_W + EDGE, EDGE, EDGE, 0, FLOOR_Y + CRATE_H - EDGE / 2, frontZ, metal)
+  addBox(root, EDGE, CRATE_H, EDGE, -CRATE_W / 2, wallY, frontZ, metal)
+  addBox(root, EDGE, CRATE_H, EDGE, CRATE_W / 2, wallY, frontZ, metal)
+  addBox(root, EDGE, EDGE, CRATE_D + EDGE, sideX, FLOOR_Y + EDGE / 2, 0, metal)
+  addBox(root, EDGE, EDGE, CRATE_D + EDGE, sideX, FLOOR_Y + CRATE_H - EDGE / 2, 0, metal)
+  addBox(root, EDGE, CRATE_H, EDGE, sideX, wallY, -CRATE_D / 2, metal)
+  addBox(root, EDGE, CRATE_H, EDGE, sideX, wallY, CRATE_D / 2, metal)
 
   const logoMat = new THREE.MeshStandardMaterial({
     map: logo,
@@ -243,10 +246,10 @@ function buildCrate(logo: THREE.Texture, maps: THREE.Texture[] | null) {
   doorPivot.position.copy(hinge)
   const door = new THREE.Group()
   addBox(door, 1.34, PANEL_LEN, 0.07, 0, PANEL_LEN / 2, 0.035, wood)
-  addBox(door, 1.4, edge, 0.09, 0, edge / 2, 0.05, metal)
-  addBox(door, 1.4, edge, 0.09, 0, PANEL_LEN - edge / 2, 0.05, metal)
-  addBox(door, edge, PANEL_LEN, 0.09, -0.67, PANEL_LEN / 2, 0.05, metal)
-  addBox(door, edge, PANEL_LEN, 0.09, 0.67, PANEL_LEN / 2, 0.05, metal)
+  addBox(door, 1.4, EDGE, 0.09, 0, EDGE / 2, 0.05, metal)
+  addBox(door, 1.4, EDGE, 0.09, 0, PANEL_LEN - EDGE / 2, 0.05, metal)
+  addBox(door, EDGE, PANEL_LEN, 0.09, -0.67, PANEL_LEN / 2, 0.05, metal)
+  addBox(door, EDGE, PANEL_LEN, 0.09, 0.67, PANEL_LEN / 2, 0.05, metal)
   doorPivot.add(door)
   root.add(doorPivot)
   return root
