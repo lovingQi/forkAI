@@ -6,12 +6,17 @@
       <el-step title="传感器" />
       <el-step title="完成" />
     </el-steps>
-    <section v-if="step === 0" class="panel">
-      <p>名称：{{ robot.name || '—' }}</p>
-      <p>车型：{{ robot.robotType || '—' }}</p>
-      <p>地址：{{ robot.ip || '—' }}</p>
-      <p>电量：{{ robot.battery }}%</p>
-      <p>地图：{{ robot.mapName || '—' }}</p>
+    <section v-if="step === 0" class="panel fit">
+      <div class="split info">
+        <div>
+          <p>名称：{{ robot.name || '—' }}</p>
+          <p>车型：{{ robot.robotType || '—' }}</p>
+          <p>地址：{{ robot.ip || '—' }}</p>
+          <p>电量：{{ robot.battery }}%</p>
+          <p>地图：{{ robot.mapName || '—' }}</p>
+        </div>
+        <VehicleOrbitView />
+      </div>
     </section>
     <section v-else-if="step === 1" class="panel">
       <p class="hint">默认只读。要修改需持有控制权，保存前会对比、备份并写入日志。</p>
@@ -63,6 +68,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import ParamEditor from '@/components/ParamEditor.vue'
 import VehicleParamView from '@/components/vehicle/VehicleParamView.vue'
+import VehicleOrbitView from '@/components/vehicle/VehicleOrbitView.vue'
 import {
   applyConsoleParams,
   completeSetup,
@@ -128,11 +134,24 @@ onMounted(() => {
 <style scoped>
 .wizard { height: 100%; overflow: auto; padding: 16px; display: flex; flex-direction: column; gap: 16px; }
 .panel { flex: 1; min-height: 0; overflow: auto; }
+.panel.fit { overflow: hidden; display: flex; flex-direction: column; }
 .split { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(320px, 1fr); gap: 16px; align-items: start; }
 .split > :last-child { height: 420px; }
+.split.info {
+  flex: 1;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  align-items: stretch;
+  grid-template-rows: minmax(0, 1fr);
+}
+.split.info > * { min-width: 0; min-height: 0; }
+.split.info > :last-child { height: 100%; min-height: 0; }
 @media (max-width: 900px) {
   .split { grid-template-columns: 1fr; }
-  .split > :last-child { height: 320px; }
+  .split > :last-child { height: 320px; min-height: 320px; }
+  .split.info { grid-template-rows: auto minmax(0, 1fr); }
+  .split.info > :last-child { height: 100%; min-height: 0; }
 }
 .hint { color: var(--hud-muted, #7f8f84); }
 footer { display: flex; justify-content: flex-end; gap: 8px; }
