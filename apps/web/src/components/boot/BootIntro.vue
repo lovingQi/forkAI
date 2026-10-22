@@ -2,17 +2,11 @@
   <div ref="hostEl" class="intro" data-testid="boot-intro" aria-hidden="true">
     <canvas ref="canvasEl"></canvas>
     <div class="veil" :style="{ opacity: String(veil) }"></div>
-    <div v-show="bezelVisible" ref="bezelEl" class="bezel" :style="bezelStyle">
-      <div class="bezel-hole" :style="{ height: holeHeight, margin: holeMargin }"></div>
-      <div class="bezel-name" :style="{ height: nameHeight }">
-        <BrandLockup />
-      </div>
-    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import * as THREE from 'three'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import diffUrl from '@/assets/boot/plywood_diff.jpg'
@@ -20,25 +14,12 @@ import norUrl from '@/assets/boot/plywood_nor.jpg'
 import roughUrl from '@/assets/boot/plywood_rough.jpg'
 import logoAssetUrl from '@/assets/boot/logo.png'
 import { disposeVehicle, loadVehicleModel, type VehicleModel } from '@/vehicle/model'
-import BrandLockup from './BrandLockup.vue'
 
 const emit = defineEmits<{ done: []; fallback: [] }>()
 
 const hostEl = ref<HTMLElement | null>(null)
 const canvasEl = ref<HTMLCanvasElement | null>(null)
-const bezelEl = ref<HTMLElement | null>(null)
 const veil = ref(1)
-const bezelVisible = ref(false)
-const holeHeight = ref('0px')
-const holeMargin = ref('0px')
-const nameHeight = ref('0px')
-const bezelStyle = reactive({
-  left: '0px',
-  top: '0px',
-  width: '0px',
-  height: '0px',
-  opacity: '1'
-})
 
 const INTRO_MS = 8000
 const CRATE_W = 1.5
@@ -66,6 +47,9 @@ let truck: THREE.Group | null = null
 let screen: THREE.Mesh | null = null
 let doorPivot: THREE.Group | null = null
 let logoTexture: THREE.Texture | null = null
+let screenMap: THREE.CanvasTexture | null = null
+let screenDecal: THREE.Mesh | null = null
+let faceAspect = 199 / 145
 let resizeObserver: ResizeObserver | null = null
 let card: HTMLElement | null = null
 let natural = { left: 0, top: 0, width: 560, height: 180 }
@@ -286,6 +270,20 @@ function mountModel(model: VehicleModel) {
   panel.castShadow = false
   panel.receiveShadow = false
   screen = panel
+  const decalGeometry = panel.geometry.clone()
+  assignScreenUvs(decalGeometry)
+  screenMap = paintScreenCard()
+  const decalMaterial = new THREE.MeshBasicMaterial({
+    map: screenMap,
+    transparent: true,
+    toneMapped: false,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1
+  })
+  screenDecal = new THREE.Mesh(decalGeometry, decalMaterial)
+  panel.add(screenDecal)
   wheelbase = Math.abs(model.driveWheelZ - model.loadWheelZ) * TRUCK_SCALE
   const tail = (model.bounds.max.z - mid) * TRUCK_SCALE
   const fork = (mid - model.bounds.min.z) * TRUCK_SCALE
@@ -299,6 +297,66 @@ function mountModel(model: VehicleModel) {
   return root
 }
 
+function faceAxes(size: THREE.Vector3) {
+  const thin = size.x <= size.y && size.x <= size.z ? 0 : size.y <= size.z ? 1 : 2
+  const rest = [0, 1, 2].filter((axis) => axis !== thin)
+  if (rest.includes(0) && rest.includes(1)) return { thin, u: 0, v: 1 }
+  if (rest.includes(0)) return { thin, u: 0, v: rest.find((axis) => axis !== 0) ?? 2 }
+  return { thin, u: 1, v: 2 }
+}
+
+function assignScreenUvs(geometry: THREE.BufferGeometry) {
+  const position = geometry.getAttribute('position')
+  geometry.computeBoundingBox()
+  const box = geometry.boundingBox
+  if (!box) return
+  const size = box.getSize(new THREE.Vector3())
+  const { u, v } = faceAxes(size)
+  const uvs = new Float32Array(position.count * 2)
+  const spanU = size.getComponent(u) || 1
+  const spanV = size.getComponent(v) || 1
+  for (let index = 0; index < position.count; index += 1) {
+    const point = [position.getX(index), position.getY(index), position.getZ(index)]
+    uvs[index * 2] = (point[u] - box.min.getComponent(u)) / spanU
+    uvs[index * 2 + 1] = (point[v] - box.min.getComponent(v)) / spanV
+  }
+  geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2))
+}
+
+function paintScreenCard() {
+  const canvas = document.createElement('canvas')
+  canvas.width = 1024
+  canvas.height = 746
+  const ctx = canvas.getContext('2d')
+  const scale = 1024 / 560
+  if (ctx) {
+    ctx.fillStyle = '#050806'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.strokeStyle = 'rgba(182, 255, 59, 0.55)'
+    ctx.lineWidth = scale
+    ctx.strokeRect(scale / 2, scale / 2, canvas.width - scale, canvas.height - scale)
+    const pad = 28 * scale
+    ctx.fillStyle = '#b6ff3b'
+    ctx.font = `${28 * scale}px Consolas, monospace`
+    ctx.letterSpacing = `${0.2 * 28 * scale}px`
+    ctx.textBaseline = 'top'
+    ctx.fillText('EASYFORK', pad, pad)
+    ctx.letterSpacing = '0px'
+    ctx.fillStyle = '#e8f5e1'
+    ctx.font = `${16 * scale}px Consolas, monospace`
+    const lines = ['[ .. ] core', '[ .. ] jarvis', '[ .. ] rosbridge']
+    let y = pad + 28 * scale + 16 * scale
+    for (const line of lines) {
+      ctx.fillText(line, pad, y)
+      y += 16 * scale + 12 * scale
+    }
+  }
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.anisotropy = 8
+  return texture
+}
+
 function screenFace() {
   const panel = screen
   if (!panel || !truck) return false
@@ -307,33 +365,31 @@ function screenFace() {
   const box = geometry.boundingBox
   if (!box) return false
   const size = box.getSize(faceCorner)
-  const axis = size.x <= size.y && size.x <= size.z ? 0 : size.y <= size.z ? 1 : 2
+  const { thin, u, v } = faceAxes(size)
   const min = [box.min.x, box.min.y, box.min.z]
   const max = [box.max.x, box.max.y, box.max.z]
   const center = box.getCenter(localCenter)
   panel.updateWorldMatrix(true, false)
-  const at = (value: number, target: THREE.Vector3) => {
-    target.copy(center).setComponent(axis, value).applyMatrix4(panel.matrixWorld)
-    return target
-  }
-  at(min[axis], nearFace)
-  at(max[axis], farFace)
+  nearFace.copy(center).setComponent(thin, min[thin]).applyMatrix4(panel.matrixWorld)
+  farFace.copy(center).setComponent(thin, max[thin]).applyMatrix4(panel.matrixWorld)
   const forward = trail.set(0, 0, 1).transformDirection(truck.matrixWorld)
   const useFar = farFace.dot(forward) >= nearFace.dot(forward)
-  const front = useFar ? max[axis] : min[axis]
-  const other = [0, 1, 2].filter((item) => item !== axis)
-  let index = 0
-  for (const first of [min[other[0]], max[other[0]]]) {
-    for (const second of [min[other[1]], max[other[1]]]) {
-      const corner = screenCorners[index]
-      corner.copy(center)
-      corner.setComponent(axis, front)
-      corner.setComponent(other[0], first)
-      corner.setComponent(other[1], second)
-      corner.applyMatrix4(panel.matrixWorld)
-      index += 1
-    }
-  }
+  const front = useFar ? max[thin] : min[thin]
+  const localCorners = [
+    [min[u], max[v]],
+    [max[u], max[v]],
+    [max[u], min[v]],
+    [min[u], min[v]]
+  ]
+  localCorners.forEach(([faceU, faceV], index) => {
+    const corner = screenCorners[index]
+    corner.copy(center)
+    corner.setComponent(thin, front)
+    corner.setComponent(u, faceU)
+    corner.setComponent(v, faceV)
+    corner.applyMatrix4(panel.matrixWorld)
+  })
+  faceAspect = screenCorners[0].distanceTo(screenCorners[1]) / Math.max(screenCorners[0].distanceTo(screenCorners[3]), 1e-6)
   screenCenter.copy(screenCorners[0]).add(screenCorners[1]).add(screenCorners[2]).add(screenCorners[3]).multiplyScalar(0.25)
   normal.copy(screenCenter).sub(useFar ? nearFace : farFace).normalize()
   return true
@@ -391,63 +447,108 @@ function placeCamera(now: number) {
 
 function projectScreen(host: DOMRect) {
   if (!screen || !camera || !screenFace()) return null
-  let minX = Infinity
-  let minY = Infinity
-  let maxX = -Infinity
-  let maxY = -Infinity
+  const points: { x: number; y: number }[] = []
   for (const corner of screenCorners) {
-    projected.copy(corner)
-    projected.project(camera)
+    projected.copy(corner).project(camera)
     if (projected.z < -1 || projected.z > 1) return null
-    const px = (projected.x * 0.5 + 0.5) * host.width + host.left
-    const py = (-projected.y * 0.5 + 0.5) * host.height + host.top
-    minX = Math.min(minX, px)
-    maxX = Math.max(maxX, px)
-    minY = Math.min(minY, py)
-    maxY = Math.max(maxY, py)
+    points.push({
+      x: (projected.x * 0.5 + 0.5) * host.width + host.left,
+      y: (-projected.y * 0.5 + 0.5) * host.height + host.top
+    })
   }
-  const rect = { left: minX, top: minY, width: maxX - minX, height: maxY - minY }
-  if (rect.width < 8 || rect.height < 8 || rect.width > host.width * 2.4 || rect.height > host.height * 2.4) return null
-  return rect
+  const xs = points.map((point) => point.x)
+  const ys = points.map((point) => point.y)
+  const width = Math.max(...xs) - Math.min(...xs)
+  const height = Math.max(...ys) - Math.min(...ys)
+  if (width < 8 || height < 8 || width > host.width * 2.4 || height > host.height * 2.4) return null
+  return points
+}
+
+function adjugate(m: number[][]) {
+  return [
+    [m[1][1] * m[2][2] - m[1][2] * m[2][1], m[0][2] * m[2][1] - m[0][1] * m[2][2], m[0][1] * m[1][2] - m[0][2] * m[1][1]],
+    [m[1][2] * m[2][0] - m[1][0] * m[2][2], m[0][0] * m[2][2] - m[0][2] * m[2][0], m[0][2] * m[1][0] - m[0][0] * m[1][2]],
+    [m[1][0] * m[2][1] - m[1][1] * m[2][0], m[0][1] * m[2][0] - m[0][0] * m[2][1], m[0][0] * m[1][1] - m[0][1] * m[1][0]]
+  ]
+}
+
+function multiply(a: number[][], b: number[][]) {
+  const out = [0, 1, 2].map(() => [0, 0, 0])
+  for (let row = 0; row < 3; row += 1) {
+    for (let col = 0; col < 3; col += 1) {
+      out[row][col] = a[row][0] * b[0][col] + a[row][1] * b[1][col] + a[row][2] * b[2][col]
+    }
+  }
+  return out
+}
+
+function basis(x1: number, y1: number, x2: number, y2: number, x3: number, y3: number, x4: number, y4: number) {
+  const source = [
+    [x1, x2, x3],
+    [y1, y2, y3],
+    [1, 1, 1]
+  ]
+  const inverted = adjugate(source)
+  const scale = [
+    inverted[0][0] * x4 + inverted[0][1] * y4 + inverted[0][2],
+    inverted[1][0] * x4 + inverted[1][1] * y4 + inverted[1][2],
+    inverted[2][0] * x4 + inverted[2][1] * y4 + inverted[2][2]
+  ]
+  return multiply(source, [
+    [scale[0], 0, 0],
+    [0, scale[1], 0],
+    [0, 0, scale[2]]
+  ])
+}
+
+function pinMatrix(width: number, height: number, topLeft: { x: number; y: number }, topRight: { x: number; y: number }, bottomLeft: { x: number; y: number }, bottomRight: { x: number; y: number }) {
+  const from = basis(0, 0, width, 0, 0, height, width, height)
+  const to = basis(topLeft.x, topLeft.y, topRight.x, topRight.y, bottomLeft.x, bottomLeft.y, bottomRight.x, bottomRight.y)
+  const homography = multiply(to, adjugate(from))
+  const unit = homography[2][2] || 1
+  for (const row of homography) {
+    row[0] /= unit
+    row[1] /= unit
+    row[2] /= unit
+  }
+  const t = homography
+  return `matrix3d(${t[0][0]},${t[1][0]},0,${t[2][0]},${t[0][1]},${t[1][1]},0,${t[2][1]},0,0,1,0,${t[0][2]},${t[1][2]},0,${t[2][2]})`
 }
 
 function layoutCard(now: number) {
   if (!card || !hostEl.value) return
-  const show = now >= 5560
-  bezelVisible.value = show
-  if (!show) {
+  if (now < 5900) {
     card.style.opacity = '0'
     return
   }
   const host = hostEl.value.getBoundingClientRect()
-  const rect = projectScreen(host)
-  if (!rect) return
-  const settle = smooth(now, 7600, 8000)
-  const margin = Math.max(10, rect.width * 0.05)
-  const name = Math.max(36, rect.height * 0.16)
-  holeMargin.value = `${margin}px ${margin}px 0`
-  bezelStyle.left = `${rect.left - margin}px`
-  bezelStyle.top = `${rect.top - margin}px`
-  bezelStyle.width = `${rect.width + margin * 2}px`
-  bezelStyle.height = `${rect.height + margin + name}px`
-  bezelStyle.opacity = String(smooth(now, 5560, 5900) * (1 - settle))
-  holeHeight.value = `${rect.height}px`
-  nameHeight.value = `${name}px`
-
-  const hostLimit = Math.min((host.width * 0.92) / natural.width, (host.height * 0.78) / natural.height)
-  const fit = Math.min(rect.width / natural.width, rect.height / natural.height, hostLimit)
-  const scale = fit + (1 - fit) * settle
-  const drawnW = natural.width * fit
-  const drawnH = natural.height * fit
-  const cardLeft = rect.left + (rect.width - drawnW) / 2
-  const cardTop = rect.top + (rect.height - drawnH) / 2
+  const projectedCorners = projectScreen(host)
+  if (!projectedCorners) return
+  const settle = now >= 7600 ? smooth(now, 7600, 8000) : 0
+  const pinnedWidth = 560
+  const pinnedHeight = 560 / faceAspect
+  const width = pinnedWidth + (natural.width - pinnedWidth) * settle
+  const height = pinnedHeight + (natural.height - pinnedHeight) * settle
+  const resting = [
+    { x: natural.left, y: natural.top },
+    { x: natural.left + natural.width, y: natural.top },
+    { x: natural.left + natural.width, y: natural.top + natural.height },
+    { x: natural.left, y: natural.top + natural.height }
+  ]
+  const corners = projectedCorners.map((point, index) => ({
+    x: point.x + (resting[index].x - point.x) * settle,
+    y: point.y + (resting[index].y - point.y) * settle
+  }))
   card.style.position = 'fixed'
   card.style.left = '0px'
   card.style.top = '0px'
   card.style.margin = '0'
   card.style.zIndex = '6'
   card.style.transformOrigin = '0 0'
-  card.style.transform = `translate(${cardLeft + (natural.left - cardLeft) * settle}px, ${cardTop + (natural.top - cardTop) * settle}px) scale(${scale})`
+  card.style.boxSizing = 'border-box'
+  card.style.width = `${width}px`
+  card.style.height = `${height}px`
+  card.style.transform = pinMatrix(width, height, corners[0], corners[1], corners[3], corners[2])
   card.style.opacity = String(smooth(now, 5900, 6400))
 }
 
@@ -458,6 +559,10 @@ function update(now: number) {
   placeTruck(now)
   placeCamera(now)
   layoutCard(now)
+  const decalMaterial = screenDecal?.material
+  if (decalMaterial && !Array.isArray(decalMaterial)) {
+    decalMaterial.opacity = now <= 6400 ? 1 : now >= 7000 ? 0 : 1 - smooth(now, 6400, 7000)
+  }
   renderer.render(scene, camera)
 }
 
@@ -635,6 +740,10 @@ function dispose() {
   resizeObserver?.disconnect()
   resizeObserver = null
   logoTexture?.dispose()
+  screenMap?.dispose()
+  screenDecal?.geometry.dispose()
+  const decalMaterial = screenDecal?.material
+  if (decalMaterial && !Array.isArray(decalMaterial)) decalMaterial.dispose()
   gradientTexture?.dispose()
   woodTextures.forEach((texture) => texture.dispose())
   envTexture?.dispose()
@@ -709,24 +818,5 @@ canvas {
   background: #060a18;
   pointer-events: none;
   z-index: 3;
-}
-.bezel {
-  position: fixed;
-  z-index: 4;
-  pointer-events: none;
-  display: flex;
-  flex-direction: column;
-  background: #10141c;
-  box-sizing: border-box;
-}
-.bezel-hole {
-  background: #050806;
-}
-.bezel-name {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  padding: 0 8px;
 }
 </style>
