@@ -27,6 +27,7 @@
 import { onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRobotStore, type Point } from '@/stores/robot'
+import { TOP_VIEW, topCenterZ, vehicleTopImage } from '@/vehicle/topView'
 import { control } from '@/api/http'
 
 export interface ReplayPoint extends Point {
@@ -76,6 +77,8 @@ let panY = 0
 let follow = true
 // 用户是否已手动交互(交互后不再自动套用初始视图)
 let userInteracted = false
+let topImage: HTMLImageElement | null = null
+let topFailed = false
 
 let dragging = false
 let lastX = 0
@@ -626,6 +629,21 @@ function drawClearances() {
 }
 
 // 基于避障参数(已保存值)绘制配置范围框：车体边缘外扩 min 距离，一圈虚线
+function robotDims() {
+  const robot = store.paramsInfo.robot || {}
+  const num = (key: string) => Number(robot[key]?.default)
+  const width = num('size_width')
+  const front = num('size_length_front')
+  const rear = num('size_length_rear')
+  if (width > 0 && front > 0 && rear > 0) return { width, lengthFront: front, lengthRear: rear }
+  const size = store.robotSize
+  return {
+    width: size.width || 600,
+    lengthFront: size.length_front || size.length / 2 || 400,
+    lengthRear: size.length_rear || size.length / 2 || 400
+  }
+}
+
 function drawAvoidBox() {
   if (!ctx || !props.showAvoidBox) return
   const av = store.paramsInfo['avoid']
@@ -637,10 +655,10 @@ function drawAvoidBox() {
 
   const [x, y, yaw] = store.pose
   const th = poseYawToRad(yaw)
-  const size = store.robotSize
-  const front = (size.length_front || size.length / 2 || 400) + fmin
-  const rear = (size.length_rear || size.length / 2 || 400) + bmin
-  const halfW = (size.width || 600) / 2 + smin
+  const dims = robotDims()
+  const front = dims.lengthFront + fmin
+  const rear = dims.lengthRear + bmin
+  const halfW = dims.width / 2 + smin
 
   const corners: Point[] = [
     { x: front, y: halfW },
@@ -678,14 +696,49 @@ function drawLaser() {
   })
 }
 
+function drawTop(x: number, y: number, th: number) {
+  if (!ctx || !topImage) return false
+  const dims = robotDims()
+  const cz = topCenterZ(dims.lengthFront)
+  const left = (TOP_VIEW.zMin - cz) * 1000
+  const right = (TOP_VIEW.zMax - cz) * 1000
+  const top = TOP_VIEW.xMax * 1000
+  const bottom = TOP_VIEW.xMin * 1000
+  const origin = vehicleToScreen(left, top, x, y, th)
+  const across = vehicleToScreen(right, top, x, y, th)
+  const down = vehicleToScreen(left, bottom, x, y, th)
+  const width = topImage.naturalWidth || topImage.width
+  const height = topImage.naturalHeight || topImage.height
+  ctx.save()
+  ctx.setTransform(
+    (across.x - origin.x) / width,
+    (across.y - origin.y) / width,
+    (down.x - origin.x) / height,
+    (down.y - origin.y) / height,
+    origin.x,
+    origin.y
+  )
+  ctx.drawImage(topImage, 0, 0)
+  ctx.restore()
+  return true
+}
+
 function drawRobot() {
   if (!ctx) return
   const [x, y, yaw] = store.pose
   const th = poseYawToRad(yaw)
-  const size = store.robotSize
-  const front = size.length_front || size.length / 2 || 400
-  const rear = size.length_rear || size.length / 2 || 400
-  const halfW = (size.width || 600) / 2
+  if (drawTop(x, y, th)) {
+    const center = worldToScreen({ x, y })
+    ctx.fillStyle = '#bbf7d0'
+    ctx.beginPath()
+    ctx.arc(center.x, center.y, Math.max(2.2, scale.value * 60), 0, Math.PI * 2)
+    ctx.fill()
+    return
+  }
+  const dims = robotDims()
+  const front = dims.lengthFront
+  const rear = dims.lengthRear
+  const halfW = dims.width / 2
   const lw = Math.max(1.4, scale.value * 40)
   const total = front + rear
 
@@ -781,6 +834,7 @@ function resize() {
 }
 
 onMounted(() => {
+  vehicleTopImage().then((image) => { topImage = image }).catch(() => { topFailed = true })
   ctx = cv.value!.getContext('2d')
   resize()
   ro = new ResizeObserver(resize)

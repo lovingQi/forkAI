@@ -1,6 +1,6 @@
 <template>
   <div class="param-editor">
-    <div v-for="(meta, key) in items" :key="key" class="row">
+    <div v-for="(meta, key) in items" :key="key" class="row" @focusin="emit('focus', String(key))" @click="emit('focus', String(key))">
       <div class="label">
         <strong>{{ meta.name_zh || key }}</strong>
         <span>{{ meta.desc_zh || meta.desc || '' }}</span>
@@ -50,7 +50,11 @@ const props = defineProps<{
   items: Record<string, ParamItem>
   editing: boolean
 }>()
-const emit = defineEmits<{ submit: [changes: Record<string, any>] }>()
+const emit = defineEmits<{
+  submit: [changes: Record<string, any>]
+  draft: [changes: Record<string, any>]
+  focus: [key: string]
+}>()
 const draft = reactive<Record<string, any>>({})
 const dialog = ref(false)
 
@@ -100,6 +104,12 @@ const diff = computed(() => {
     })
   }
   return rows
+})
+
+watch(diff, (rows) => {
+  const changes: Record<string, any> = {}
+  for (const row of rows) changes[row.key] = row.to
+  emit('draft', changes)
 })
 
 function confirm() {

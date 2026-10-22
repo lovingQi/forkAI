@@ -9,7 +9,8 @@
         <el-button @click="rerun">重新运行初始向导</el-button>
       </div>
     </header>
-    <el-collapse v-model="open">
+    <div class="layout">
+    <el-collapse v-model="open" class="list">
       <el-collapse-item v-for="name in editableNames" :key="name" :name="name" :title="name">
         <ParamEditor
           :key="`${name}-${editing && session.iAmHolder}`"
@@ -17,6 +18,8 @@
           :items="sections[name].items"
           :editing="editing && session.iAmHolder"
           @submit="(c) => save(name, c)"
+          @draft="(c) => onDraft(name, c)"
+          @focus="(key) => (focus = { section: name, key })"
         />
       </el-collapse-item>
       <el-collapse-item name="__advanced" title="高级（只读）">
@@ -27,6 +30,8 @@
         </el-collapse>
       </el-collapse-item>
     </el-collapse>
+    <VehicleParamView class="preview" :sections="sections" :drafts="drafts" :focus="focus" />
+    </div>
 
     <el-drawer v-model="backupOpen" title="备份与恢复" size="420px">
       <div v-for="item in backups" :key="item.id" class="backup">
@@ -45,6 +50,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import ParamEditor from '@/components/ParamEditor.vue'
+import VehicleParamView from '@/components/vehicle/VehicleParamView.vue'
 import {
   applyConsoleParams,
   consoleErrorMessage,
@@ -66,14 +72,21 @@ const editing = ref(false)
 const open = ref<string[]>([])
 const backupOpen = ref(false)
 const logOpen = ref(false)
+const drafts = ref<Record<string, Record<string, any>>>({})
+const focus = ref<{ section: string; key: string } | null>(null)
 const backups = ref<{ id: string; ts: number; clientId: string }[]>([])
 const logs = ref<Record<string, any>[]>([])
 const editableNames = computed(() => Object.keys(sections.value).filter((name) => sections.value[name].editable))
 const readonlyNames = computed(() => Object.keys(sections.value).filter((name) => !sections.value[name].editable))
 
+function onDraft(section: string, changes: Record<string, any>) {
+  if (Object.keys(changes).length === 0) delete drafts.value[section]
+  else drafts.value[section] = changes
+}
 async function load() {
   const data = await getConsoleParams()
   sections.value = data.sections || {}
+  drafts.value = {}
 }
 async function save(section: string, changes: Record<string, any>) {
   try {
@@ -111,6 +124,10 @@ async function rerun() {
     ElMessage.error(consoleErrorMessage(e))
   }
 }
+watch(open, (names) => {
+  const name = names[names.length - 1]
+  if (name && name !== '__advanced') focus.value = { section: name, key: '' }
+})
 watch(backupOpen, (v) => {
   if (v) loadBackups().catch((e) => ElMessage.error(consoleErrorMessage(e)))
 })
@@ -124,6 +141,12 @@ onMounted(() => {
 
 <style scoped>
 .params { height: 100%; overflow: auto; padding: 16px; }
+.layout { display: grid; grid-template-columns: minmax(320px, 1fr) minmax(360px, 1fr); gap: 16px; align-items: start; }
+.preview { position: sticky; top: 0; height: 560px; }
+@media (max-width: 900px) {
+  .layout { grid-template-columns: 1fr; }
+  .preview { position: static; height: 320px; }
+}
 header { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 12px; }
 header h1 { margin: 0; font-size: 18px; }
 header div { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }

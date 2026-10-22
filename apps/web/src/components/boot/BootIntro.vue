@@ -19,6 +19,7 @@ import diffUrl from '@/assets/boot/plywood_diff.jpg'
 import norUrl from '@/assets/boot/plywood_nor.jpg'
 import roughUrl from '@/assets/boot/plywood_rough.jpg'
 import logoAssetUrl from '@/assets/boot/logo.png'
+import { disposeVehicle, loadVehicleModel, type VehicleModel } from '@/vehicle/model'
 import BrandLockup from './BrandLockup.vue'
 
 const emit = defineEmits<{ done: []; fallback: [] }>()
@@ -42,13 +43,11 @@ const bezelStyle = reactive({
 const INTRO_MS = 8000
 const CRATE_W = 1.5
 const CRATE_H = 1.6
-const CRATE_D = 1.5
+const CRATE_D = 1.7
 const FLOOR_Y = 0.28
 const PANEL_LEN = 1.6
 const DOOR_ANGLE = Math.PI / 2 + Math.asin(FLOOR_Y / PANEL_LEN)
 const TRUCK_SCALE = 0.55
-const SCREEN_W = 0.36
-const SCREEN_H = 0.22
 const FLOOR_LEN = 0.85
 const RAMP_LEN = PANEL_LEN
 const GROUND_LEN = 1.275
@@ -75,18 +74,25 @@ let envTexture: THREE.Texture | null = null
 let room: THREE.Scene | null = null
 let gradientTexture: THREE.CanvasTexture | null = null
 let woodTextures: THREE.Texture[] = []
+let vehicle: VehicleModel | null = null
+let sigma0 = -0.7
+let wheelbase = 0.8
 let camCurve: THREE.CatmullRomCurve3 | null = null
 let lookCurve: THREE.CatmullRomCurve3 | null = null
-let rampPitch = Math.asin(FLOOR_Y / PANEL_LEN)
 
 const inside = new THREE.Vector3(0, FLOOR_Y, -0.1)
 const hinge = new THREE.Vector3(0, FLOOR_Y, CRATE_D / 2)
 const rampTip = new THREE.Vector3()
 const rampScratch = new THREE.Vector3()
 const pose = new THREE.Vector3()
+const lead = new THREE.Vector3()
+const trail = new THREE.Vector3()
+const nearFace = new THREE.Vector3()
+const farFace = new THREE.Vector3()
+const localCenter = new THREE.Vector3()
+const faceCorner = new THREE.Vector3()
+const screenCorners = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()]
 const axisX = new THREE.Vector3(1, 0, 0)
-const up = new THREE.Vector3(0, 1, 0)
-const qYaw = new THREE.Quaternion()
 const qPitch = new THREE.Quaternion()
 const normal = new THREE.Vector3()
 const screenCenter = new THREE.Vector3()
@@ -137,9 +143,21 @@ function distanceAt(now: number) {
 
 function face(pitch: number) {
   if (!truck) return
-  qYaw.setFromAxisAngle(up, -Math.PI / 2)
   qPitch.setFromAxisAngle(axisX, pitch)
-  truck.quaternion.copy(qYaw).multiply(qPitch)
+  truck.quaternion.copy(qPitch)
+}
+
+function surfacePoint(sigma: number, out: THREE.Vector3) {
+  if (sigma <= 0) {
+    out.set(0, FLOOR_Y, hinge.z + sigma)
+    return
+  }
+  if (sigma <= PANEL_LEN) {
+    rampPoint(sigma, out)
+    return
+  }
+  rampPoint(PANEL_LEN, rampTip)
+  out.set(0, 0, rampTip.z + (sigma - PANEL_LEN))
 }
 
 function addBox(
@@ -250,76 +268,84 @@ function buildCrate(logo: THREE.Texture, maps: THREE.Texture[] | null) {
   return root
 }
 
-function buildTruck() {
+function mountModel(model: VehicleModel) {
+  vehicle = model
   const root = new THREE.Group()
-  const body = new THREE.MeshStandardMaterial({ color: 0x243056, roughness: 0.45, metalness: 0.35 })
-  const weight = new THREE.MeshStandardMaterial({ color: 0x1a2238, roughness: 0.5, metalness: 0.4 })
-  const cabinMat = new THREE.MeshStandardMaterial({ color: 0x2c3a66, roughness: 0.4, metalness: 0.3 })
-  const glass = new THREE.MeshStandardMaterial({ color: 0x0d121c, roughness: 0.15, metalness: 0.1 })
-  const steel = new THREE.MeshStandardMaterial({ color: 0x8b9098, roughness: 0.35, metalness: 0.7 })
-  const forkMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.4, metalness: 0.6 })
-  const tire = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9 })
-  const lampMat = new THREE.MeshStandardMaterial({ color: 0xfff4cc, emissive: 0xfff1c4, emissiveIntensity: 0.7 })
-
-  addBox(root, 1.6, 0.42, 0.9, 0, 0.37, 0, body)
-  addBox(root, 0.38, 0.5, 0.86, -0.72, 0.43, 0, weight)
-  addBox(root, 0.62, 0.62, 0.7, 0.08, 0.86, 0, cabinMat)
-  addBox(root, 0.04, 0.42, 0.56, 0.4, 0.92, 0, glass)
-
-  screen = new THREE.Mesh(
-    new THREE.PlaneGeometry(SCREEN_W, SCREEN_H),
-    new THREE.MeshBasicMaterial({ color: 0x050806, toneMapped: false })
-  )
-  screen.position.set(0.43, 0.96, 0)
-  screen.rotation.y = Math.PI / 2
-  screen.castShadow = false
-  root.add(screen)
-
-  addBox(root, 0.08, 1.05, 0.08, 0.58, 0.68, 0.24, steel)
-  addBox(root, 0.08, 1.05, 0.08, 0.58, 0.68, -0.24, steel)
-  addBox(root, 0.08, 0.28, 0.55, 0.58, 0.4, 0, steel)
-  addBox(root, 0.62, 0.035, 0.07, 0.9, 0.22, 0.16, forkMat)
-  addBox(root, 0.62, 0.035, 0.07, 0.9, 0.22, -0.16, forkMat)
-  addBox(root, 0.08, 0.42, 0.08, -0.1, 1.28, -0.28, steel)
-  addBox(root, 0.08, 0.42, 0.08, -0.1, 1.28, 0.28, steel)
-  addBox(root, 0.08, 0.42, 0.08, 0.28, 1.28, -0.28, steel)
-  addBox(root, 0.08, 0.42, 0.08, 0.28, 1.28, 0.28, steel)
-  addBox(root, 0.5, 0.04, 0.7, 0.1, 1.5, 0, steel)
-  addBox(root, 0.08, 0.06, 0.1, 0.78, 0.42, 0.28, lampMat)
-  addBox(root, 0.08, 0.06, 0.1, 0.78, 0.42, -0.28, lampMat)
-
-  const wheelGeo = new THREE.CylinderGeometry(0.18, 0.18, 0.14, 18)
-  wheelGeo.rotateZ(Math.PI / 2)
-  for (const [x, z] of [[-0.52, 0.42], [-0.52, -0.42], [0.48, 0.42], [0.48, -0.42]] as const) {
-    const wheel = new THREE.Mesh(wheelGeo, tire)
-    wheel.position.set(x, 0.18, z)
-    wheel.castShadow = true
-    wheel.receiveShadow = true
-    root.add(wheel)
-  }
-
+  const mid = (model.loadWheelZ + model.driveWheelZ) / 2
+  model.root.position.set(0, -model.bounds.min.y, -mid)
+  root.add(model.root)
   root.scale.setScalar(TRUCK_SCALE)
+  model.root.traverse((child) => {
+    const mesh = child as THREE.Mesh
+    if (!mesh.isMesh) return
+    mesh.castShadow = true
+    mesh.receiveShadow = true
+  })
+  const panel = model.screen
+  panel.material = new THREE.MeshBasicMaterial({ color: 0x050806, toneMapped: false })
+  panel.castShadow = false
+  panel.receiveShadow = false
+  screen = panel
+  wheelbase = Math.abs(model.driveWheelZ - model.loadWheelZ) * TRUCK_SCALE
+  const tail = (model.bounds.max.z - mid) * TRUCK_SCALE
+  const fork = (mid - model.bounds.min.z) * TRUCK_SCALE
+  const margin = 0.04
+  const minSigma = -CRATE_D + margin + fork
+  const maxSigma = -tail - margin
+  if (minSigma > maxSigma) throw new Error('木箱装不下这台车')
+  sigma0 = (minSigma + maxSigma) / 2
+  const forkTip = sigma0 + FLOOR_LEN + RAMP_LEN + GROUND_LEN - fork
+  if (forkTip < PANEL_LEN + 0.3) throw new Error('坡道停靠距离不够')
   return root
+}
+
+function screenFace() {
+  const panel = screen
+  if (!panel || !truck) return false
+  const geometry = panel.geometry
+  if (!geometry.boundingBox) geometry.computeBoundingBox()
+  const box = geometry.boundingBox
+  if (!box) return false
+  const size = box.getSize(faceCorner)
+  const axis = size.x <= size.y && size.x <= size.z ? 0 : size.y <= size.z ? 1 : 2
+  const min = [box.min.x, box.min.y, box.min.z]
+  const max = [box.max.x, box.max.y, box.max.z]
+  const center = box.getCenter(localCenter)
+  panel.updateWorldMatrix(true, false)
+  const at = (value: number, target: THREE.Vector3) => {
+    target.copy(center).setComponent(axis, value).applyMatrix4(panel.matrixWorld)
+    return target
+  }
+  at(min[axis], nearFace)
+  at(max[axis], farFace)
+  const forward = trail.set(0, 0, 1).transformDirection(truck.matrixWorld)
+  const useFar = farFace.dot(forward) >= nearFace.dot(forward)
+  const front = useFar ? max[axis] : min[axis]
+  const other = [0, 1, 2].filter((item) => item !== axis)
+  let index = 0
+  for (const first of [min[other[0]], max[other[0]]]) {
+    for (const second of [min[other[1]], max[other[1]]]) {
+      const corner = screenCorners[index]
+      corner.copy(center)
+      corner.setComponent(axis, front)
+      corner.setComponent(other[0], first)
+      corner.setComponent(other[1], second)
+      corner.applyMatrix4(panel.matrixWorld)
+      index += 1
+    }
+  }
+  screenCenter.copy(screenCorners[0]).add(screenCorners[1]).add(screenCorners[2]).add(screenCorners[3]).multiplyScalar(0.25)
+  normal.copy(screenCenter).sub(useFar ? nearFace : farFace).normalize()
+  return true
 }
 
 function placeTruck(now: number) {
   if (!truck) return
-  const d = distanceAt(now)
-  let pitch = 0
-  if (d <= FLOOR_LEN) {
-    pose.set(0, FLOOR_Y, -0.1 + d)
-    const along = d - (FLOOR_LEN - 0.25)
-    if (along > 0) pitch = rampPitch * smooth(along, 0, 0.25)
-  } else if (d <= FLOOR_LEN + RAMP_LEN) {
-    const s = d - FLOOR_LEN
-    rampPoint(s, pose)
-    const leave = s - (RAMP_LEN - 0.25)
-    pitch = leave > 0 ? rampPitch * (1 - smooth(leave, 0, 0.25)) : rampPitch
-  } else {
-    rampPoint(RAMP_LEN, rampTip)
-    const s = Math.min(GROUND_LEN, d - FLOOR_LEN - RAMP_LEN)
-    pose.set(0, 0, rampTip.z + s)
-  }
+  const sigma = sigma0 + distanceAt(now)
+  surfacePoint(sigma + wheelbase / 2, lead)
+  surfacePoint(sigma - wheelbase / 2, trail)
+  pose.addVectors(lead, trail).multiplyScalar(0.5)
+  const pitch = -Math.atan2(lead.y - trail.y, lead.z - trail.z)
   truck.position.copy(pose)
   face(pitch)
 }
@@ -331,12 +357,12 @@ function aspectScale() {
 
 function buildCameraPath() {
   if (!truck || !screen || !camera) return
-  truck.position.set(0, 0, STOP_Z)
-  face(0)
+  placeTruck(5560)
   truck.updateMatrixWorld(true)
-  screen.getWorldPosition(screenCenter)
-  normal.set(0, 0, 1).transformDirection(screen.matrixWorld)
-  const fillDist = (SCREEN_H * TRUCK_SCALE) / 2 / Math.tan(THREE.MathUtils.degToRad(9))
+  if (!screenFace()) return
+  const top = Math.max(...screenCorners.map((corner) => corner.y))
+  const bottom = Math.min(...screenCorners.map((corner) => corner.y))
+  const fillDist = (top - bottom) / 2 / Math.tan(THREE.MathUtils.degToRad(9))
   lookKeys[2].copy(screenCenter)
   lookKeys[3].copy(screenCenter)
   camKeys[3].copy(screenCenter).addScaledVector(normal, fillDist)
@@ -364,22 +390,13 @@ function placeCamera(now: number) {
 }
 
 function projectScreen(host: DOMRect) {
-  if (!screen || !camera) return null
-  const width = SCREEN_W
-  const height = SCREEN_H
+  if (!screen || !camera || !screenFace()) return null
   let minX = Infinity
   let minY = Infinity
   let maxX = -Infinity
   let maxY = -Infinity
-  const local = [
-    [-width / 2, -height / 2],
-    [width / 2, -height / 2],
-    [width / 2, height / 2],
-    [-width / 2, height / 2]
-  ]
-  screen.updateWorldMatrix(true, false)
-  for (const [x, y] of local) {
-    projected.set(x, y, 0).applyMatrix4(screen.matrixWorld)
+  for (const corner of screenCorners) {
+    projected.copy(corner)
     projected.project(camera)
     if (projected.z < -1 || projected.z > 1) return null
     const px = (projected.x * 0.5 + 0.5) * host.width + host.left
@@ -532,7 +549,8 @@ function measureCard() {
   return true
 }
 
-function boot(maps: THREE.Texture[] | null) {
+function boot(maps: THREE.Texture[] | null, model: VehicleModel) {
+  vehicle = model
   const host = hostEl.value
   const canvas = canvasEl.value
   if (!host || !canvas || !measureCard()) {
@@ -591,7 +609,16 @@ function boot(maps: THREE.Texture[] | null) {
   scene.add(ground)
   rampPoint(PANEL_LEN, rampTip)
   scene.add(buildCrate(loadLogo(), maps))
-  truck = buildTruck()
+  if (!vehicle) {
+    fail()
+    return
+  }
+  try {
+    truck = mountModel(vehicle)
+  } catch {
+    fail()
+    return
+  }
   scene.add(truck)
   resize()
   resizeObserver = new ResizeObserver(() => resize())
@@ -603,6 +630,7 @@ function boot(maps: THREE.Texture[] | null) {
 
 function dispose() {
   stopped = true
+  if (vehicle && !vehicle.root.parent) disposeVehicle(vehicle.root)
   if (raf) cancelAnimationFrame(raf)
   resizeObserver?.disconnect()
   resizeObserver = null
@@ -637,12 +665,24 @@ function dispose() {
 onMounted(() => {
   requestAnimationFrame(() => {
     if (stopped) return
-    void loadWoodMaps().then((maps) => {
+    const modelTask = Promise.race([
+      loadVehicleModel(),
+      new Promise<VehicleModel>((_, reject) => window.setTimeout(() => reject(new Error('车辆模型加载超时')), 10000))
+    ])
+    void Promise.all([loadWoodMaps(), modelTask]).then(([maps, model]) => {
       if (stopped) {
         maps?.forEach((texture) => texture.dispose())
+        disposeVehicle(model.root)
         return
       }
-      boot(maps)
+      try {
+        boot(maps, model)
+      } catch {
+        disposeVehicle(model.root)
+        fail()
+      }
+    }).catch(() => {
+      if (!stopped) fail()
     })
   })
 })

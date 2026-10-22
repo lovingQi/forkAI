@@ -8,6 +8,7 @@ test('用例10：初始向导', async ({ page, request }) => {
   await expect(page.getByText('名称：')).toBeVisible()
   await page.getByRole('button', { name: '下一步' }).click()
   await expect(page.getByText('默认只读')).toBeVisible()
+  await expect(page.getByTestId('vehicle-param-view')).toBeVisible()
   await page.getByRole('button', { name: '下一步' }).click()
   await page.getByRole('button', { name: '下一步' }).click()
   await page.getByRole('button', { name: '完成并进入系统' }).click()
