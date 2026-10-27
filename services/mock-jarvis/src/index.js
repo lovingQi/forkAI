@@ -662,12 +662,51 @@ function lowPayload() {
   }
 }
 
+function laserPoints(pts) {
+  return pts.map(([px, py]) => `${Math.round(px)} ${Math.round(py)}`).join(' ') + ' '
+}
+
+function laserData() {
+  const [x, y] = state.pose
+  const groups = [
+    {
+      name: 'laser',
+      pts: [
+        [x + 800, y + 200],
+        [x + 900, y],
+        [x + 800, y - 200]
+      ]
+    },
+    {
+      name: 'laser_back',
+      pts: [
+        [x - 700, y + 150],
+        [x - 800, y],
+        [x - 700, y - 150]
+      ]
+    },
+    {
+      name: 'sonar',
+      pts: [
+        [x + 400, y + 350],
+        [x + 400, y - 350]
+      ]
+    }
+  ]
+  const data = groups.map((g) => ({
+    name: g.name,
+    num: g.pts.length,
+    points: laserPoints(g.pts)
+  }))
+  return { size: data.length, data }
+}
+
 function highPayload() {
   return {
     type: 'high',
     vel: state.vel.join(','),
     pose: state.pose.join(','),
-    laser_data: { data: [] },
+    laser_data: laserData(),
     path_points: { points: pathPointsForHigh },
     clearances: { points: [] },
     // 与 CanvasView 一致：毫米口径（非米）
@@ -680,7 +719,8 @@ function statePayload() {
   return {
     ...lowPayload(),
     pose: state.pose.join(','),
-    vel: state.vel.join(',')
+    vel: state.vel.join(','),
+    laser_data: laserData()
   }
 }
 

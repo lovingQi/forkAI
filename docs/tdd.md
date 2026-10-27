@@ -154,7 +154,7 @@ forkAI 部署在叉车车载工控机，外部实体：
 - **VoiceBar.vue**：PTT 按住说话（鼠标/触摸，或按住空格、松开结束；INPUT/TEXTAREA/选择框内不抢空格）；麦克风常驻复用，按住期间先本地缓冲再上传，松手 flush 尾巴；ASR/LLM 下拉（打开时测延迟且不覆盖当前选中，改选立即写入 runtime_models.yaml，旧探测请求作废）；规则快路径开关、LLM 思考开关与最多意图条数（1～8，与模型一起持久化）；停止；文本调试（仅 ptt，ASR 识别结果写入该输入框，不自动发送）；识别中/话术（旁注 TTS 引擎）/最近 8 条日志；麦不可用降级文本输入。常听与车载通道已去掉。
 - **FlowEditor.vue**（457 行）：vue-flow 画布，6 种节点，拖拽连线（每节点每类出边限 1 条，点击边切 success/fail），NodePanel 按 `/api/tasks/schemas` 动态渲染参数表单（required/safety 标记），CRUD + 执行/暂停/继续/取消 + 引擎状态标签；节点色环随 `flow_event` 更新；布局存 `flow.ui.positions`；引擎忙时全编辑禁用；**不支持编辑 parallel_groups 和 options**（保存只序列化 nodes/edges/ui，含并行组的流再保存会丢该字段，R-05）。
 - **stores/session.ts**：配对/现场/事件总线状态；TTS 用**常驻 AudioContext** 播 base64（避免 new Audio 重开流吃开头字，配合服务端前导静音垫），失败回退 speechSynthesis；`asr_final` 触发 TTS 打断；`flow_event` 更新流程状态。
-- **stores/robot.ts**：high/low WS 解析进车况 state（pose/vel/laser/path/robot_size/battery/alarm/current_routes/fork_info/IO）。
+- **stores/robot.ts**：high/low WS 解析进车况 state（pose/vel/laser/path/robot_size/battery/alarm/current_routes/fork_info/IO）。激光组保留 `name`，图例显示段名。
 - **api 层**：axios Bearer 拦截；WsChannel 2s 自动重连；MicCapture（AudioWorklet 优先、ScriptProcessor 兜底，重采样 16k PCM16，静音 Gain 挂图、松手 flush）；AudioWs 首帧 `{pairToken, channel}`。
 
 ## 5. mock-jarvis 与 llm-sidecar 设计
@@ -163,7 +163,7 @@ forkAI 部署在叉车车载工控机，外部实体：
 
 - 零依赖 Node.js：内置 http + 手写 WS 文本帧编解码。
 - HTTP：`GET /api/state|map|params` + `POST /api/control/{drive,stop,idle,dock,goto,scheduler,routes,...}`（统一回 `{"succeed":true}`）+ 调试端点 `POST /api/debug/state`（battery/alarm/charing 注入）。
-- WS：`/ws/high` 10Hz、`/ws/low` 1Hz 推送，对齐真车频率与字段。
+- WS：`/ws/high` 10Hz、`/ws/low` 1Hz 推送，对齐真车频率与字段。mock 的高频包和 `/api/state` 带 `laser`、`laser_back`、`sonar` 三组示例点。
 - 内存假状态**严格对齐真车语义**：mode=JMode 名、status="mode，子状态"、route 结束 SetDefaultRICK→`TEMP_DEFAULT`、`current_routes.status` 恒 "running"、`/api/state` 无 speed 字段；focklift 叉高 200ms/10mm 渐变模拟、head 改 pose[2]、charge 置 charing、`mock_fail` 中途夭折。
 - **已知缺口**：无 `autodrive` 分支（画布右键"到达"落 default，只验链路不验语义，R-04）；`schedulerthis` 只打废弃警告。
 - **定位声明**：mock 是契约模拟，不是物理真值；Mock 通过不能关闭真车待办。
@@ -273,14 +273,15 @@ cmd 与 JMode 处理者对应（源码 AddTask 注册）：`drive/safedrive`→J
 | safe / motor | bool | 安全模式 / 电机使能 |
 | current_routes | object | 见 7.3；status 恒 "running" |
 | input / output / virtual | int 数组 | IO 位（bitset 反转后逐位 0/1；:174-220） |
-| laser_data / path_points / clearances / robot_size | object | 高频画布数据 |
+| laser_data | object | `size` 为组数。`data[]` 每项有 `name`（激光段名或 `sonar`）、`num`、`points`（全局毫米整数 `"x y"` 串）。无有效数据的激光不会出现，组序可变 |
+| path_points / clearances / robot_size | object | 高频画布数据 |
 | fork_info | object | 仅 robot_type 含 "flt"：`fork_height`（当前叉高，源自 `liftHeight`，毫米口径）、`fork_up`（=robot.Max_ForkHeight）、`fork_down`=0、`flap`、`ctrl_flag`、`sub_type`（P1500/P2000=1、A1500=0、R1500=2；R1500 另有 `fork_max_dis`/`fork_cur_dis`）（:314-365） |
 | alarm | string | `normal/estop/lost/stuck`：电机未使能→estop；status 含 "lost"→lost；flt 车型 TruckState Front/Back/Side/Left/RightTruck→stuck、EStop→estop；其余 status 含 brake/stuck→stuck（:367-401） |
 
 ### 7.6 WS /ws/high 与 /ws/low（JWebHttpServer.cpp:72-76、275-305）
 
 - 内嵌 CivetWeb 推送，文本帧 JSON，入站数据忽略（:244-252）。
-- `/ws/high`（默认 10Hz）：`{type:"high", vel, pose, laser_data, path_points, clearances, robot_size}`（BuildHighFreqState，:74-91）。
+- `/ws/high`（默认 10Hz）：`{type:"high", vel, pose, laser_data, path_points, clearances, robot_size}`（BuildHighFreqState，:74-91）。`laser_data` 为 `{size, data}`，`data[]` 每项含 `name`、`num`、`points`（全局毫米整数 `"x y"` 串）。`GET /api/state` 的全量状态同样包含这份 `laser_data`。
 - `/ws/low`（默认 1Hz）：`{type:"low", 基础状态 + current_routes + IO + fork_info + alarm}`（BuildLowFreqState，:93-106）。
 - 频率由 `Start(port, highHz, lowHz)` 参数决定（:22-29）。
 

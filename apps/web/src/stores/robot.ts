@@ -8,6 +8,11 @@ export interface Point {
   y: number
 }
 
+export interface LaserGroup {
+  name: string
+  points: Point[]
+}
+
 export interface RobotSize {
   width: number
   length: number
@@ -54,7 +59,7 @@ export const useRobotStore = defineStore('robot', {
     io: { input: [] as number[], output: [] as number[], virtual: [] as number[] },
     vel: [0, 0, 0] as [number, number, number],
     pose: [0, 0, 0] as [number, number, number],
-    laserGroups: [] as Point[][],
+    laserGroups: [] as LaserGroup[],
     pathPoints: [] as Point[],
     clearances: [] as Point[],
     robotSize: { width: 0, length: 0, length_front: 0, length_rear: 0 } as RobotSize,
@@ -68,7 +73,10 @@ export const useRobotStore = defineStore('robot', {
       if (msg.vel) this.vel = parseTriple(msg.vel)
       if (msg.pose) this.pose = parseTriple(msg.pose)
       if (msg.laser_data && Array.isArray(msg.laser_data.data)) {
-        this.laserGroups = msg.laser_data.data.map((g: any) => parsePointsString(g.points))
+        this.laserGroups = msg.laser_data.data.map((g: any) => ({
+          name: typeof g?.name === 'string' ? g.name.trim() : '',
+          points: parsePointsString(g?.points)
+        }))
       }
       if (msg.path_points && Array.isArray(msg.path_points.points)) {
         this.pathPoints = msg.path_points.points.map((p: any) => ({ x: p.x, y: p.y }))

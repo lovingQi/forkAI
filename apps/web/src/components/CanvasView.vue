@@ -7,10 +7,10 @@
       <el-button size="small" @click="zoom(1 / 1.2)">缩小</el-button>
       <el-tag size="small" type="info">{{ (scale * 1000).toFixed(1) }} px/m</el-tag>
     </div>
-    <div class="canvas-legend">
-      <div v-for="(c, i) in LASER_COLORS" :key="i" class="legend-item">
-        <span class="legend-swatch" :style="{ background: c }"></span>
-        <span>组{{ i + 1 }}</span>
+    <div class="canvas-legend" v-if="store.laserGroups.length">
+      <div v-for="(g, i) in store.laserGroups" :key="i" class="legend-item">
+        <span class="legend-swatch" :style="{ background: LASER_COLORS[i % LASER_COLORS.length] }"></span>
+        <span>{{ g.name || `组${i + 1}` }}</span>
       </div>
     </div>
     <div
@@ -689,7 +689,7 @@ function drawLaser() {
   if (!ctx) return
   store.laserGroups.forEach((group, i) => {
     ctx!.fillStyle = LASER_COLORS[i % LASER_COLORS.length]
-    for (const p of group) {
+    for (const p of group.points) {
       const s = worldToScreen(p)
       ctx!.fillRect(s.x - 1, s.y - 1, 2, 2)
     }
