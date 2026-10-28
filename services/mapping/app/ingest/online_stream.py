@@ -1,4 +1,5 @@
 """有界队列：1000 条或 32 MiB，排队超过 2 秒丢弃。每个话题时间必须非递减。"""
+import threading
 import time
 
 from ..errors import MappingError
@@ -19,6 +20,8 @@ class OnlineStream:
         self._last_stamp: dict[str, int] = {}
         self._last_frame: dict[str, str] = {}
         self._last_seen = {topic: time.monotonic() for topic in topics}
+        self._input_seen = {topic: time.monotonic() for topic in topics}
+        self._seen_lock = threading.Lock()
         self._started = time.monotonic()
         self.armed = False
 
@@ -34,7 +37,21 @@ class OnlineStream:
         now = time.monotonic()
         self._started = now
         self._last_seen = {topic: now for topic in self.topics}
+        with self._seen_lock:
+            self._input_seen = {topic: now for topic in self.topics}
         self.armed = True
+
+    def input_fresh(self, max_age: float = 2.0) -> bool:
+        now = time.monotonic()
+        with self._seen_lock:
+            times = list(self._input_seen.values())
+        return bool(times) and all(now - seen < max_age for seen in times)
+
+    def note_seen(self, topic: str) -> None:
+        """读线程收到原始消息时调用。送数变慢不能刷新这个时间。"""
+        with self._seen_lock:
+            if topic in self._input_seen:
+                self._input_seen[topic] = time.monotonic()
 
     def push(self, topic: str, stamp_ns: int, frame: str, decoded: dict, size: int) -> None:
         self.stats["received"] += 1
@@ -77,8 +94,10 @@ class OnlineStream:
         if time.monotonic() - self._started < SILENCE_S:
             return
         now = time.monotonic()
-        for topic, seen in self._last_seen.items():
-            if now - seen >= SILENCE_S:
+        with self._seen_lock:
+            seen = dict(self._input_seen)
+        for topic, seen_at in seen.items():
+            if now - seen_at >= SILENCE_S:
                 self.stop("input_stalled")
                 return
 

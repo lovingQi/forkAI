@@ -22,6 +22,7 @@ class FoxgloveClient:
         self._sub_ids: dict[int, int] = {}
         self._next_sub = 1
         self.closed_reason = None
+        self.on_input = None
 
     async def connect(self, timeout: float = 10) -> None:
         try:
@@ -108,6 +109,10 @@ class FoxgloveClient:
         channel_id = self._sub_ids.get(sub_id)
         if channel_id is None:
             return
+        channel = self.channels.get(channel_id)
+        topic = channel.get("topic") if channel else None
+        if topic and self.on_input is not None:
+            self.on_input(topic)
         self._queue.put_nowait({
             "kind": "data",
             "channelId": channel_id,

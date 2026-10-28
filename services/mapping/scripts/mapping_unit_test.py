@@ -49,6 +49,11 @@ def test_scan() -> None:
     points = message["timed_point_cloud_data"]["point_data"]
     check("无效点被丢弃", dropped == 3 and len(points) == 1, f"dropped={dropped} points={len(points)}")
     check("有效点落在 x 轴", abs(points[0]["position"]["x"] - 2.0) < 1e-6)
+    close = dict(decoded)
+    close["ranges"] = [2.0, 2.01]
+    message, dropped = convert_laser_scan(close, "front-laser", identity(), 1, "forkai", 0)
+    points = message["timed_point_cloud_data"]["point_data"]
+    check("相邻有效点都送给引擎", dropped == 0 and len(points) == 2, f"dropped={dropped} points={len(points)}")
 
 
 def test_urdf() -> None:
@@ -105,6 +110,31 @@ def test_queue() -> None:
         check("时间回退会停止", False)
     except Exception:
         check("时间回退会停止", stream.stop_reason == "input_invalid")
+
+
+def test_silence_follows_socket() -> None:
+    stalled = OnlineStream(["/front/scan"])
+    stalled.arm()
+    stalled._started -= 3
+    stalled._input_seen["/front/scan"] -= 3
+    stalled.push("/front/scan", 1, "front_laser_link", {}, 1)
+    stalled.poll_silence()
+    check("送进队列不会掩盖静默", stalled.stop_reason == "input_stalled")
+    fresh = OnlineStream(["/front/scan"])
+    fresh.arm()
+    fresh._started -= 3
+    fresh._input_seen["/front/scan"] -= 3
+    fresh.note_seen("/front/scan")
+    fresh.poll_silence()
+    check("收包回调会刷新静默", fresh.stop_reason is None)
+
+
+def test_pose_queue() -> None:
+    from app.engine.cartographer_client import _trajectory_options_payload
+
+    payload = _trajectory_options_payload({"trajectory_builder_2d": {}})
+    duration = payload["trajectory_builder_2d_options"]["pose_extrapolator_options"]["constant_velocity"]["pose_queue_duration"]
+    check("外推队列与引擎 lua 的 0.001 秒一致", duration == 0.001, str(duration))
 
 
 def test_png() -> None:
@@ -195,6 +225,8 @@ def main() -> int:
     test_umcl()
     test_rosbags()
     test_queue()
+    test_silence_follows_socket()
+    test_pose_queue()
     test_png()
     test_compose()
     test_plan2d()

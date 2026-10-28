@@ -1,6 +1,7 @@
 """子图纹理拼成占据栅格。几何与混合公式移植自 robospace captureMapSnapshot。"""
 import gzip
 import math
+import time
 
 import numpy as np
 
@@ -71,7 +72,9 @@ def compose_occupancy(submaps: list[dict]) -> dict:
         yaw = yaw_of(sl["transform"]["rotation"])
         cosine, sine = math.cos(yaw), math.sin(yaw)
         tx, ty = sl["transform"]["translation"]["x"], sl["transform"]["translation"]["y"]
-        for row in range(0, tex["height"], step):
+        for row_index, row in enumerate(range(0, tex["height"], step)):
+            if row_index % 8 == 0:
+                time.sleep(0)
             v = (row + 0.5) * tex["resolution"]
             for column in range(0, tex["width"], step):
                 source = (row * tex["width"] + column) * 2
@@ -92,6 +95,8 @@ def compose_occupancy(submaps: list[dict]) -> dict:
                 observed[index] = _clamp(255 + (observed[index] * inverse) / 255)
     occupancy = [-1] * (width * height)
     for row in range(height):
+        if row % 8 == 0:
+            time.sleep(0)
         for column in range(width):
             index = row * width + column
             target = (height - 1 - row) * width + column

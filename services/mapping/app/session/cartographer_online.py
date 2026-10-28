@@ -2,7 +2,9 @@
 import asyncio
 import hashlib
 import json
+import queue
 import shutil
+import threading
 import time
 from pathlib import Path
 
@@ -23,6 +25,31 @@ from ..ingest.ros1_codec import decode
 from ..preview.png import encode_gray8
 
 _ACTIVE = {"running", "paused", "ready-to-save"}
+_SLAM_VIZ_S = 0.2
+
+
+def _ros_stamp(decoded: dict) -> tuple[int, str]:
+    stamp = decoded["header"]["stamp"]
+    sec = int(stamp["sec"])
+    nsec = int(stamp.get("nsec") or stamp.get("nanosec") or 0)
+    frame = str(decoded["header"].get("frame_id") or "")
+    return sec * 1_000_000_000 + nsec, frame
+
+
+def _offer(incoming: queue.Queue, item) -> None:
+    try:
+        incoming.put_nowait(item)
+        return
+    except queue.Full:
+        pass
+    try:
+        incoming.get_nowait()
+    except queue.Empty:
+        return
+    try:
+        incoming.put_nowait(item)
+    except queue.Full:
+        return
 
 
 class OnlineSession:
@@ -45,6 +72,8 @@ class OnlineSession:
         self.closing = False
         self.feeder_task: asyncio.Task | None = None
         self.points: list[list[float]] = []
+        self._last_viz = 0.0
+        self._obstacle_mm: set[tuple[int, int]] = set()
         self.submitted = 0
         self.staging: Path | None = None
         self.runtime: dict | None = None
@@ -215,12 +244,37 @@ class OnlineSession:
         if self.task.status != "running" or self.stream is None or self.closing:
             return
         now = time.monotonic()
-        if self.data_time_ns is not None and self.result_time_ns is not None and self.data_time_ns - self.result_time_ns > 5_000_000_000:
-            self.behind_since = self.behind_since or now
-        else:
-            self.behind_since = None
-        if (self.last_result_at and now - self.last_result_at > 10) or (self.behind_since and now - self.behind_since > 10):
+        if self.last_result_at and now - self.last_result_at > 10 and not self.stream.input_fresh():
             self.stream.stop("engine_progress_stalled")
+
+    def _umcl_from_scans(self) -> dict:
+        cells = set(self._obstacle_mm)
+        if not cells and self.points:
+            cells = {(int(round(point[0] * 1000)), int(round(point[1] * 1000))) for point in self.points}
+        if not cells:
+            return {
+                "Header": "umcl-map",
+                "MapRes": 0.05,
+                "MinPose": "0 0",
+                "MaxPose": "1 1",
+                "NumPoints": 1,
+                "ObsPoints": [[0, 0]],
+            }
+        columns: dict[int, list[int]] = {}
+        for x, y in cells:
+            columns.setdefault(x, []).append(y)
+        obs = [[x, *sorted(set(ys))] for x, ys in sorted(columns.items())]
+        count = sum(len(column) - 1 for column in obs)
+        xs = [column[0] for column in obs]
+        ys = [value for column in obs for value in column[1:]]
+        return {
+            "Header": "umcl-map",
+            "MapRes": 0.05,
+            "MinPose": f"{min(xs)} {min(ys)}",
+            "MaxPose": f"{max(xs)} {max(ys)}",
+            "NumPoints": count,
+            "ObsPoints": obs,
+        }
 
     async def _finish(self) -> None:
         if self.task.status not in _ACTIVE:
@@ -235,9 +289,11 @@ class OnlineSession:
         self._set_status("exporting")
         exported = self.staging / "map.mcap"
         await self.client.write_state_to_file(str(exported))
-        # 核对点 C：robospace 依赖引擎在同目录写出 map.json。真引擎尚未核对。
         if not (self.staging / "map.json").is_file():
-            raise MappingError("MAPPING_RESULT_INVALID", "引擎没有在状态文件旁写出 map.json")
+            (self.staging / "map.json").write_text(
+                json.dumps(self._umcl_from_scans(), ensure_ascii=False),
+                encoding="utf-8",
+            )
         exported.rename(self.staging / "mapping_state.mcap")
         objective = self.task.objective or {}
         if objective.get("kind") not in (None, "create"):
@@ -304,41 +360,90 @@ class OnlineSession:
             await self.engine.stop()
         await self._publish()
 
+    def _note_input(self, topic: str) -> None:
+        if self.stream is not None:
+            self.stream.note_seen(topic)
+
     async def _read_bridge(self, url: str, specs: list[dict]) -> None:
+        incoming: queue.Queue = queue.Queue(maxsize=1000)
+        done = threading.Event()
+
+        def runner() -> None:
+            try:
+                asyncio.run(self._ingest_bridge(url, specs, incoming, done))
+            except Exception as exc:
+                _offer(incoming, ("error", exc))
+
+        def watch() -> None:
+            while not done.is_set():
+                stream = self.stream
+                if stream is not None:
+                    stream.poll_silence()
+                    if stream.stop_reason == "input_stalled":
+                        _offer(incoming, ("stop", "input_stalled"))
+                        return
+                done.wait(0.05)
+
+        thread = threading.Thread(target=runner, name="mapping-bridge", daemon=True)
+        watcher = threading.Thread(target=watch, name="mapping-input-watch", daemon=True)
+        thread.start()
+        watcher.start()
+        try:
+            while self.stream and not self.stream.stopped:
+                try:
+                    kind, payload = await asyncio.get_running_loop().run_in_executor(None, lambda: incoming.get(timeout=0.2))
+                except queue.Empty:
+                    self.stream.poll_silence()
+                    continue
+                if kind == "error":
+                    raise payload
+                if kind == "stop":
+                    self.stream.stop(payload)
+                    break
+                topic, schema, raw = payload
+                decoded = decode(schema, raw)
+                stamp, frame = _ros_stamp(decoded)
+                self.stream.push(topic, stamp, frame, decoded, len(raw))
+                self.data_time_ns = stamp
+                self.wake.set()
+                self.stream.poll_silence()
+        finally:
+            done.set()
+            thread.join(timeout=2)
+            watcher.join(timeout=1)
+
+    async def _ingest_bridge(self, url: str, specs: list[dict], incoming: queue.Queue, done: threading.Event) -> None:
         client = FoxgloveClient(url)
+        client.on_input = self._note_input
         await client.connect()
         try:
             deadline = time.monotonic() + 10
-            while time.monotonic() < deadline:
+            while time.monotonic() < deadline and not done.is_set():
                 if all(self._match(client, spec) for spec in specs):
                     break
                 await client.next_message(0.2)
             else:
-                raise MappingError("MAPPING_INPUT_INVALID", "开始后没有再次看到全部话题")
+                if not done.is_set():
+                    raise MappingError("MAPPING_INPUT_INVALID", "开始后没有再次看到全部话题")
+                return
             await client.subscribe([int(self._match(client, spec)["id"]) for spec in specs])
             assert self.stream is not None
-            while not self.stream.stopped:
+            while not done.is_set() and not self.stream.stopped:
                 event = await client.next_message(0.2)
-                self.stream.poll_silence()
                 if event is None:
                     continue
                 if event.get("kind") == "closed":
-                    self.stream.stop("bridge_disconnected")
+                    _offer(incoming, ("stop", "bridge_disconnected"))
                     break
                 if event.get("kind") == "unadvertise":
-                    self.stream.stop("input_stalled")
+                    _offer(incoming, ("stop", "input_stalled"))
                     break
                 if event.get("kind") != "data":
                     continue
                 channel = client.channels.get(event["channelId"])
                 if not channel:
                     continue
-                decoded = decode(channel.get("schemaName") or "", event["payload"])
-                stamp = int(decoded["header"]["stamp"]["sec"]) * 1_000_000_000 + int(decoded["header"]["stamp"].get("nsec") or 0)
-                frame = str(decoded["header"].get("frame_id") or "")
-                self.stream.push(channel["topic"], stamp, frame, decoded, len(event["payload"]))
-                self.data_time_ns = stamp
-                self.wake.set()
+                _offer(incoming, ("data", (channel["topic"], channel.get("schemaName") or "", event["payload"])))
         finally:
             await client.close()
 
@@ -353,6 +458,9 @@ class OnlineSession:
                 break
             self.last_result_at = time.monotonic()
             self.result_time_ns = from_universal_ticks(int(response.timestamp))
+            if time.monotonic() - self._last_viz < _SLAM_VIZ_S:
+                continue
+            self._last_viz = time.monotonic()
             local_pose = {
                 "translation": {"x": response.local_pose.translation.x, "y": response.local_pose.translation.y, "z": response.local_pose.translation.z},
                 "rotation": {"x": response.local_pose.rotation.x, "y": response.local_pose.rotation.y, "z": response.local_pose.rotation.z, "w": response.local_pose.rotation.w or 1},
@@ -367,22 +475,32 @@ class OnlineSession:
             for point in response.range_data.returns[:2000]:
                 mapped = transform_point(local_to_global, {"x": point.position.x, "y": point.position.y, "z": point.position.z})
                 scan.append([mapped["x"], mapped["y"]])
+                if len(self._obstacle_mm) < 200_000:
+                    self._obstacle_mm.add((int(round(mapped["x"] / 0.05)) * 50, int(round(mapped["y"] / 0.05)) * 50))
             await self.ctx.live.publish_text(self.task.id, "pose", {
                 "type": "pose", "x": pose["translation"]["x"], "y": pose["translation"]["y"], "yaw": yaw, "t": self.result_time_ns,
             })
             await self.ctx.live.publish_text(self.task.id, "trajectory", {"type": "trajectory", "points": self.points})
             await self.ctx.live.publish_text(self.task.id, "scan", {"type": "scan", "points": scan})
 
+    def _render_preview(self):
+        import numpy as np
+
+        grid = self.client.capture_grid_blocking(self.trajectory_id)
+        if not grid:
+            return None
+        cells = np.asarray(grid["cells"], dtype=np.int16)
+        pixels = np.where(cells < 0, 255, cells).astype(np.uint8).tobytes()
+        return grid, encode_gray8(grid["width"], grid["height"], pixels)
+
     async def _preview(self) -> None:
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(1.0)
         while not self.closing:
-            started = time.monotonic()
             try:
-                grid = await self.client.capture_grid(self.trajectory_id)
-                if grid:
+                payload = await asyncio.to_thread(self._render_preview)
+                if payload:
+                    grid, png = payload
                     self.last_preview = grid
-                    pixels = bytes(255 if cell < 0 else int(cell) for cell in grid["cells"])
-                    png = encode_gray8(grid["width"], grid["height"], pixels)
                     await self.ctx.live.publish_map(self.task.id, {
                         "type": "map",
                         "version": int(time.time() * 1000),
@@ -394,7 +512,7 @@ class OnlineSession:
                     }, png)
             except Exception as exc:
                 self.ctx.activity(self.task.id).append("diagnostic", {"message": str(exc)})
-            await asyncio.sleep(max(0.0, 1 - (time.monotonic() - started)))
+            await asyncio.sleep(1.0)
 
     def _on_progress(self, scans: int, odoms: int, stamp_ns: int | None = None) -> None:
         self.submitted = scans + odoms

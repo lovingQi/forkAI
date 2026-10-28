@@ -1,4 +1,5 @@
-"""50 毫秒或达到批次上限就发送，同一时间只有一批在途。"""
+"""50 毫秒或达到批次上限就发送，同一时间只有一批在途。在线发送走独立线程，避免堵住读数据。"""
+import asyncio
 import time
 
 from ..ingest.online_stream import OnlineStream
@@ -21,10 +22,11 @@ async def run_feeder(stream: OnlineStream, client, trajectory_id: int, bindings:
             return
         scans = sum(1 for item in batch if "timed_point_cloud_data" in item)
         odoms = len(batch) - scans
-        await client.add_sensor_data_batch(batch)
+        payload = list(batch)
         batch.clear()
         batch_bytes = 0
         started = 0.0
+        await asyncio.to_thread(client.add_sensor_data_batch_blocking, payload)
         sent_scans += scans
         sent_odom += odoms
         on_progress(sent_scans, sent_odom)
