@@ -14,11 +14,11 @@ robot:
 engines:
   cartographer:
     enabled: true
-    bin: /opt/forkai-engines/mapping-engine-2d/bin/cartographer_grpc_server
-    protoRoot: /opt/forkai-engines/mapping-engine-2d/proto
-    configDir: /opt/forkai-engines/mapping-engine-2d/config
-    configBasename: range_odom_2d_server.lua
-    profileRoot: /opt/forkai-engines/mapping-engine-2d/profiles
+    bin: /home/ucore/mapping-build-20261028/bin/cartographer-server
+    protoRoot: /home/ucore/mapping-build-20261028/src/cartographer_server/cartographer
+    configDir: /home/ucore/mapping-build-20261028/runtime/cartographer/config
+    configBasename: robot-server.lua
+    profileRoot: /home/ucore/mapping-build-20261028/runtime/cartographer/profiles
     endpoint: 127.0.0.1:50051
     engineVersion: ""
     buildId: ""
