@@ -2,6 +2,18 @@
 import struct
 import zlib
 
+import numpy as np
+
+# map_server 的未知区灰度。0 空闲对应 255，100 占据对应 0。
+UNKNOWN_GRAY = 205
+
+
+def occupancy_gray(cells) -> bytes:
+    """ROS 地图色：空闲为白，占据为黑，未知为灰。"""
+    values = np.asarray(cells, dtype=np.int16)
+    shaded = np.trunc(255 - (255 * np.clip(values, 0, 100)) / 100).astype(np.uint8)
+    return np.where(values < 0, np.uint8(UNKNOWN_GRAY), shaded).tobytes()
+
 
 def encode_gray8(width: int, height: int, pixels: bytes) -> bytes:
     if width <= 0 or height <= 0 or len(pixels) != width * height:

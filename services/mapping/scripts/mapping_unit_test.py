@@ -17,7 +17,7 @@ from app.geom import from_universal_ticks, identity, to_universal_ticks
 from app.ingest.online_stream import OnlineStream
 from app.ingest.ros1_codec import decode_with_rosbags, encode_laser_scan, encode_odometry
 from app.preview.compositor import compose_occupancy
-from app.preview.png import decode_gray8, encode_gray8
+from app.preview.png import decode_gray8, encode_gray8, occupancy_gray
 from app.robot.urdf import load_urdf, transform
 
 RESULTS = []
@@ -142,6 +142,8 @@ def test_png() -> None:
     blob = encode_gray8(2, 2, raw)
     width, height, pixels = decode_gray8(blob)
     check("PNG 往返", (width, height, pixels) == (2, 2, raw))
+    gray = list(occupancy_gray([-1, 0, 50, 100]))
+    check("空闲为白、占据为黑、未知为灰", gray == [205, 255, 127, 0], str(gray))
 
 
 def test_compose() -> None:
@@ -215,7 +217,7 @@ def test_demo_codecs() -> None:
         "NumPoints": 2, "ObsPoints": [[0, 0], [1000, 0]],
     })
     _w, _h, pixels = decode_gray8(preview)
-    check("UMCL 预览有占据像素", any(pixel == 100 for pixel in pixels))
+    check("UMCL 预览有占据像素", any(pixel == 0 for pixel in pixels) and any(pixel == 255 for pixel in pixels))
 
 
 def main() -> int:

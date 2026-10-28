@@ -22,7 +22,7 @@ from ..ingest.foxglove_client import FoxgloveClient
 from ..ingest.observe import extrinsic_for, observe_topics
 from ..ingest.online_stream import OnlineStream
 from ..ingest.ros1_codec import decode
-from ..preview.png import encode_gray8
+from ..preview.png import encode_gray8, occupancy_gray
 
 _ACTIVE = {"running", "paused", "ready-to-save"}
 _SLAM_VIZ_S = 0.2
@@ -484,13 +484,10 @@ class OnlineSession:
             await self.ctx.live.publish_text(self.task.id, "scan", {"type": "scan", "points": scan})
 
     def _render_preview(self):
-        import numpy as np
-
         grid = self.client.capture_grid_blocking(self.trajectory_id)
         if not grid:
             return None
-        cells = np.asarray(grid["cells"], dtype=np.int16)
-        pixels = np.where(cells < 0, 255, cells).astype(np.uint8).tobytes()
+        pixels = occupancy_gray(grid["cells"])
         return grid, encode_gray8(grid["width"], grid["height"], pixels)
 
     async def _preview(self) -> None:

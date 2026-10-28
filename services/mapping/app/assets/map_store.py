@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from ..errors import MappingError
-from ..preview.png import encode_gray8
+from ..preview.png import encode_gray8, occupancy_gray
 from .umcl import is_umcl_json_map
 
 
@@ -36,7 +36,7 @@ def umcl_preview_png(umcl: dict) -> bytes:
         for x, y in zip(xs, ys):
             column = min(side - 1, max(0, int((x - min_x) * scale)))
             row = min(side - 1, max(0, int((max_y - y) * scale)))
-            pixels[row * side + column] = 100
+            pixels[row * side + column] = 0
     return encode_gray8(side, side, bytes(pixels))
 
 
@@ -146,7 +146,7 @@ class MapStore:
                 shutil.copy2(src, incoming / name)
         (incoming / "project.json").write_text(json.dumps(project, ensure_ascii=False, indent=2), encoding="utf-8")
         if preview and preview.get("cells"):
-            pixels = bytes(255 if cell < 0 else int(cell) for cell in preview["cells"])
+            pixels = occupancy_gray(preview["cells"])
             (incoming / "preview.png").write_bytes(encode_gray8(preview["width"], preview["height"], pixels))
         meta = {
             "createdAt": datetime.now(timezone.utc).isoformat(),
