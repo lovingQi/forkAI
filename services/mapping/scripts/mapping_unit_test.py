@@ -163,6 +163,25 @@ def test_compose() -> None:
     ])
     occupied = sum(1 for cell in grid["cells"] if cell >= 0)
     check("两张子图能拼出占据栅格", grid["width"] > 0 and grid["height"] > 0 and occupied > 0, f"occupied={occupied}")
+    from app.geom import identity as rigid_identity
+    raw = bytearray(2 * 2 * 2)
+    raw[0] = 0
+    raw[1] = 255
+    aligned = compose_occupancy([{
+        "pose": rigid_identity(),
+        "texture": {
+            "width": 2, "height": 2, "resolution": 1.0, "slicePose": rigid_identity(), "cells": bytes(raw),
+        },
+    }])
+    hits = [index for index, cell in enumerate(aligned["cells"]) if cell >= 0]
+    check("纹理有一个占据格", len(hits) == 1, str(hits))
+    index = hits[0]
+    column = index % aligned["width"]
+    image_row = index // aligned["width"]
+    resolution = aligned["resolution"]
+    center_x = aligned["origin"]["x"] + (column + 0.5) * resolution
+    center_y = aligned["origin"]["y"] + (aligned["height"] - image_row - 0.5) * resolution
+    check("占据格和激光点的 Y 同向", abs(center_x + 0.5) < 1e-6 and abs(center_y + 0.5) < 1e-6, f"{center_x},{center_y}")
 
 
 def test_plan2d() -> None:

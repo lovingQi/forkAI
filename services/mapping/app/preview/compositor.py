@@ -20,13 +20,17 @@ def decode_texture(blob: bytes, expected_len: int) -> bytes:
 
 
 def _texture_point(tf: dict, resolution: float, column: float, row: float) -> tuple[float, float]:
+    """像素列、行换成地图坐标。
+
+    Cartographer 的 Cairo 矩阵把地图 Y 画成朝下。这里取回地图 Y，和实时激光点同一套坐标。
+    """
     yaw = yaw_of(tf["rotation"])
     cosine, sine = math.cos(yaw), math.sin(yaw)
     u = column * resolution
     v = row * resolution
     return (
         sine * u - cosine * v + tf["translation"]["x"],
-        cosine * u + sine * v - tf["translation"]["y"],
+        -cosine * u - sine * v + tf["translation"]["y"],
     )
 
 
@@ -84,7 +88,7 @@ def compose_occupancy(submaps: list[dict]) -> dict:
                     continue
                 u = (column + 0.5) * tex["resolution"]
                 px = sine * u - cosine * v + tx
-                py = cosine * u + sine * v - ty
+                py = -cosine * u - sine * v + ty
                 x = math.floor((px - origin_x) / resolution)
                 y = math.floor((py - origin_y) / resolution)
                 if x < 0 or y < 0 or x >= width or y >= height:
@@ -108,6 +112,8 @@ def compose_occupancy(submaps: list[dict]) -> dict:
         "width": width,
         "height": height,
         "resolution": resolution,
-        "origin": {"x": origin_x, "y": -(origin_y + (height - 1) * resolution), "yaw": 0},
+        # 画面把 PNG 第 0 行放在上方。行已经翻成第 0 行对应最大 Y，原点用最小 Y。
+        # 不再套 RoboSpace 给 Foxglove 的 ROS 取反，否则会和激光点上下镜像。
+        "origin": {"x": origin_x, "y": origin_y, "yaw": 0},
         "cells": occupancy,
     }
