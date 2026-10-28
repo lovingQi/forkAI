@@ -9,7 +9,7 @@ foxglove:
   preflightTimeoutMs: 10000
   startTimeoutMs: 10000
 robot:
-  urdf: config/robot.urdf
+  urdf: /usr/local/urobot/jarvis/share/forklift/urdf/forklift.urdf
   resourceId: fork-01
 engines:
   cartographer:

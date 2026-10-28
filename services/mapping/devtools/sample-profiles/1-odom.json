@@ -16,7 +16,7 @@
     }
   },
   "odometry": {
-    "topic": "/jarvis/odom",
+    "topic": "/odometry/filtered",
     "sensorId": "odometry",
     "childFrame": "base_link",
     "trackingFrame": "base_link",
