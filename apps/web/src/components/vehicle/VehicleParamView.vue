@@ -177,6 +177,23 @@ function rememberOpacity(root: THREE.Object3D) {
   })
 }
 
+function lengthFrontMm(): number {
+  // 编辑草稿优先，否则用已保存值；都无效时返回 NaN，避免误用轮距中点对齐
+  const draft = sectionDirty('robot') ? read('robot', 'size_length_front', 'draft') : NaN
+  if (Number.isFinite(draft) && draft > 0) return draft
+  const saved = read('robot', 'size_length_front', 'saved')
+  return Number.isFinite(saved) && saved > 0 ? saved : NaN
+}
+
+function placeVehicle() {
+  if (!vehicle) return false
+  const front = lengthFrontMm()
+  if (!Number.isFinite(front)) return false
+  vehicle.root.position.set(0, -vehicle.bounds.min.y, -robotCenterZ(vehicle, front))
+  updateMismatch()
+  return true
+}
+
 function drawOverlays() {
   if (!content) return
   const previous = content.getObjectByName('overlays')
@@ -311,22 +328,30 @@ async function boot() {
       return
     }
     vehicle = model
-    const front = read('robot', 'size_length_front', 'saved')
-    model.root.position.set(0, -model.bounds.min.y, -robotCenterZ(model, front))
     model.root.traverse((child) => {
       const mesh = child as THREE.Mesh
       if (mesh.isMesh) mesh.castShadow = false
     })
     content.add(model.root)
-    note.value = ''
-    updateMismatch()
-    showTop()
+    // 参数可能比 GLB 更晚到；没前段长度时先不按轮距中点硬摆，等 watch 再对齐
+    if (placeVehicle()) {
+      note.value = ''
+      showTop()
+    } else {
+      note.value = '等待车体尺寸参数…'
+    }
   } catch {
     if (!stopped) note.value = '车辆模型加载失败'
   }
 }
 
 watch(() => [props.sections, props.drafts, props.focus], () => {
+  const waiting = note.value === '等待车体尺寸参数…'
+  const placed = placeVehicle()
+  if (placed && waiting) {
+    note.value = ''
+    showTop()
+  }
   drawOverlays()
   render()
 }, { deep: true })

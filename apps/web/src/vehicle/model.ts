@@ -118,7 +118,11 @@ export function disposeVehicle(root: THREE.Object3D) {
 }
 
 export function robotCenterZ(model: VehicleModel, lengthFrontMm: number): number {
-  if (lengthFrontMm > 0) return model.bounds.max.z - lengthFrontMm / 1000
+  // 参数未就绪时 Number(undefined) 为 NaN；NaN > 0 为假，会误走轮距中点兜底，
+  // 导致车模与 laser.pos_x 示意横向错开约 0.7m。只有有限正数才用前段对齐。
+  if (Number.isFinite(lengthFrontMm) && lengthFrontMm > 0) {
+    return model.bounds.max.z - lengthFrontMm / 1000
+  }
   return (model.loadWheelZ + model.driveWheelZ) / 2
 }
 
