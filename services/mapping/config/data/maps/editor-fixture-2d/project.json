@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "projectId": "editor-fixture-2d",
+  "name": "编辑器验收地图",
+  "representations": [
+    {
+      "role": "navigation-map-2d",
+      "kind": "localization-map-2d",
+      "path": "map.json"
+    },
+    {
+      "role": "engine-state",
+      "kind": "engine-state",
+      "path": "mapping_state.mcap"
+    }
+  ],
+  "map2dFromLocalization": {
+    "txMm": 0,
+    "tyMm": 0,
+    "yawRad": 0
+  }
+}

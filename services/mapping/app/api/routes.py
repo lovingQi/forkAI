@@ -237,6 +237,29 @@ async def map_detail(project_id: str, request: Request):
     return _ctx(request).maps.get(project_id)
 
 
+@router.get("/maps/{project_id}/editor")
+async def map_editor(project_id: str, request: Request):
+    return _ctx(request).maps.editor_document(project_id)
+
+
+@router.post("/maps/{project_id}/revisions")
+async def map_revision(project_id: str, request: Request):
+    try:
+        body = await request.json()
+    except Exception as exc:
+        raise MappingError("MAPPING_INPUT_INVALID", "请求体无效") from exc
+    if not isinstance(body, dict):
+        raise MappingError("MAPPING_INPUT_INVALID", "请求体无效")
+    saved = _ctx(request).maps.commit_edit(
+        project_id,
+        body.get("name"),
+        body.get("map") or {},
+        body.get("map2dFromLocalization") or {},
+        body.get("editLog") if "editLog" in body else [],
+    )
+    return saved
+
+
 @router.get("/maps/{project_id}/preview.png")
 async def map_preview(project_id: str, request: Request):
     return Response(content=_ctx(request).maps.preview_png(project_id), media_type="image/png")

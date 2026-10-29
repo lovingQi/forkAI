@@ -62,6 +62,8 @@ async def main() -> int:
             check("已配对可以查看", got.status_code == 200 and got.json().get("ok") is True, got.text[:180])
             denied = await client.post("/api/mapping/tasks", headers=headers, json={})
             check("没有现场锁不能开始", denied.status_code == 403 and denied.json().get("error") == "no_site", denied.text[:180])
+            revision = await client.post("/api/mapping/maps/parent/revisions", headers=headers, json={})
+            check("没有现场锁不能另存地图", revision.status_code == 403 and revision.json().get("error") == "no_site", revision.text[:180])
             site = (await client.get("/api/site", headers=headers)).json()
             await client.post("/api/site/unlock", headers=headers, json={"code": site["code"]})
             allowed = await client.post("/api/mapping/tasks", headers=headers, json={})

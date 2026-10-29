@@ -5,6 +5,7 @@
       :capabilities="store.status?.capabilities"
       :maps="store.maps"
       @enter="onEnter"
+      @edit="onEdit"
       @export="onExport"
       @remove="onRemove"
     />
@@ -20,6 +21,15 @@
       <LiveMap2D v-else ref="live" :png="bitmap" :meta="meta" :trajectory="trajectory" :pose="pose" :scan="scan" />
       <MappingRunPanel :task="store.task" @finish="onFinish" @cancel="onCancel" />
     </template>
+    <MapEditor
+      v-else-if="step === 'edit' && editorDoc"
+      :project-id="editorDoc.projectId"
+      :name="editorDoc.name"
+      :map="editorDoc.map"
+      :transform="editorDoc.map2dFromLocalization"
+      @saved="onEdited"
+      @back="step = 'home'"
+    />
     <MappingResult
       v-else-if="step === 'result' && result"
       :project-id="result.projectId"
@@ -40,16 +50,18 @@ import MappingHome from '@/components/mapping/MappingHome.vue'
 import MappingPrepare from '@/components/mapping/MappingPrepare.vue'
 import MappingRunPanel from '@/components/mapping/MappingRunPanel.vue'
 import MappingResult from '@/components/mapping/MappingResult.vue'
+import MapEditor from '@/components/mapping/MapEditor.vue'
 import LiveMap2D from '@/components/mapping/LiveMap2D.vue'
 import LiveMap3D from '@/components/mapping/LiveMap3D.vue'
 import { consoleDriveStop } from '@/api/console'
-import { cancelMapping, deleteMappingMap, downloadMappingZip, finishMapping, openMappingLive, startMapping } from '@/api/mapping'
+import { cancelMapping, deleteMappingMap, downloadMappingZip, editorDocument, finishMapping, openMappingLive, startMapping } from '@/api/mapping'
 import { useMappingStore } from '@/stores/mapping'
 import { useSessionStore } from '@/stores/session'
 
 const store = useMappingStore()
 const session = useSessionStore()
-const step = ref<'home' | 'prepare' | 'running' | 'result'>('home')
+const step = ref<'home' | 'prepare' | 'running' | 'result' | 'edit'>('home')
+const editorDoc = ref<{ projectId: string; name: string; map: Record<string, any>; map2dFromLocalization: { txMm: number; tyMm: number; yawRad: number } } | null>(null)
 const bitmap = ref<ImageBitmap | null>(null)
 const meta = ref<any>(null)
 const trajectory = ref<number[][]>([])
@@ -152,6 +164,18 @@ async function onCancel() {
     if (error === 'cancel' || error === 'close') return
     ElMessage.error(error?.response?.data?.error?.message || '取消失败')
   }
+}
+async function onEdit(map: { projectId: string }) {
+  try {
+    editorDoc.value = await editorDocument(map.projectId)
+    step.value = 'edit'
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.error?.message || '这张地图不能编辑')
+  }
+}
+async function onEdited() {
+  await store.refresh()
+  step.value = 'home'
 }
 async function onExport(map: any) {
   try { await downloadMappingZip(map.projectId, map.name) } catch { ElMessage.error('导出失败') }

@@ -239,6 +239,58 @@ def test_demo_codecs() -> None:
     check("UMCL 预览有占据像素", any(pixel == 0 for pixel in pixels) and any(pixel == 255 for pixel in pixels))
 
 
+def test_edit_revision() -> None:
+    import tempfile
+    from app.assets.map_store import MapStore
+    from app.assets.umcl_objects import normalize_umcl, validate_revision
+    base = {
+        "Header": "umcl-map", "MapRes": 0.05, "MinPose": "0 0", "MaxPose": "1000 0",
+        "NumPoints": 2, "ObsPoints": [[0, 0], [1000, 0]],
+        "Objs": {
+            "PathPoint": [
+                {"name": "p1", "pose": "0 0 0", "connections": [{"name": "p2", "type": 1, "x1": 10, "y1": 1, "x2": 20, "y2": 2}]},
+                {"name": "p2", "pose": "1000 0 90"},
+            ],
+            "LaserIgnoreZone": [{"name": "ignore", "pose": "50 50 0", "points": "0 0 100 100"}],
+        },
+    }
+    cleaned = normalize_umcl(base)
+    conn = cleaned["Objs"]["PathPoint"][0]["connections"][0]
+    check("路径连接保留控制点", conn["x1"] == 10 and conn["y2"] == 2, str(conn))
+    try:
+        validate_revision(cleaned, 0.0, 0.4)
+        check("有功能区时拒绝任意角度", False)
+    except Exception as exc:
+        check("有功能区时拒绝任意角度", "90°" in str(exc), str(exc))
+    validate_revision(cleaned, 0.0, 1.5707963267948966)
+    check("有功能区时允许 90 度", True)
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        parent = root / "parent"
+        parent.mkdir()
+        (parent / "map.json").write_text(json.dumps(base), encoding="utf-8")
+        (parent / "mapping_state.mcap").write_bytes(b"parent-state")
+        (parent / "project.json").write_text(json.dumps({
+            "schemaVersion": 1, "projectId": "parent", "name": "原始",
+            "representations": [
+                {"role": "navigation-map-2d", "kind": "localization-map-2d", "path": "map.json"},
+                {"role": "engine-state", "kind": "engine-state", "path": "mapping_state.mcap"},
+            ],
+            "map2dFromLocalization": {"txMm": 0, "tyMm": 0, "yawRad": 0},
+        }), encoding="utf-8")
+        before_map = (parent / "map.json").read_bytes()
+        before_state = (parent / "mapping_state.mcap").read_bytes()
+        store = MapStore(root)
+        saved = store.commit_edit("parent", "原始", base, {"txMm": 0, "tyMm": 0, "yawRad": 1.5707963267948966}, [{"kind": "edit"}])
+        child = root / saved["projectId"]
+        check("父地图文件未改", (parent / "map.json").read_bytes() == before_map and (parent / "mapping_state.mcap").read_bytes() == before_state)
+        check("新版本状态与父文件相同", (child / "mapping_state.mcap").read_bytes() == before_state)
+        edited = json.loads((child / "map.json").read_text(encoding="utf-8"))
+        check("新版本含路径连接", edited["Objs"]["PathPoint"][0]["connections"][0]["x1"] == 10)
+        project = json.loads((child / "project.json").read_text(encoding="utf-8"))
+        check("新版本不覆盖工程编号", project["projectId"] == saved["projectId"] and "editedFrom" not in project)
+
+
 def main() -> int:
     test_time()
     test_scan()
@@ -252,6 +304,7 @@ def main() -> int:
     test_compose()
     test_plan2d()
     test_demo_codecs()
+    test_edit_revision()
     failed = RESULTS.count(False)
     print(f"[MAP-UNIT] {len(RESULTS) - failed}/{len(RESULTS)} passed", flush=True)
     return 1 if failed else 0

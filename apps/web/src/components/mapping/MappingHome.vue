@@ -24,6 +24,7 @@
         <span>{{ map.name }}</span>
         <span class="meta">{{ map.dimension === '3d' ? '3D' : '2D' }}</span>
         <span class="meta">{{ map.createdAt || '' }}</span>
+        <button v-if="map.dimension !== '3d'" type="button" data-testid="edit-map" @click="emit('edit', map)">编辑</button>
         <button type="button" @click="emit('export', map)">导出 ZIP</button>
         <button type="button" @click="emit('remove', map)">删除</button>
       </li>
@@ -35,7 +36,7 @@
 import { computed, ref } from 'vue'
 
 const props = defineProps<{ capabilities: any; maps: { projectId: string; name: string; createdAt: string; dimension?: string }[] }>()
-const emit = defineEmits<{ enter: [payload: { id: string; dimension: '2d' | '3d' }]; export: [map: any]; remove: [map: any] }>()
+const emit = defineEmits<{ enter: [payload: { id: string; dimension: '2d' | '3d' }]; edit: [map: any]; export: [map: any]; remove: [map: any] }>()
 const dimension = ref<'2d' | '3d'>('2d')
 const entries = computed(() => {
   const cap = props.capabilities?.[dimension.value] || {}

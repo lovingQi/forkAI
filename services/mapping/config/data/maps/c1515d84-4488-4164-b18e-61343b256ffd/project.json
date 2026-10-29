@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "projectId": "c1515d84-4488-4164-b18e-61343b256ffd",
+  "name": "编辑器验收地图-浏览器",
+  "representations": [
+    {
+      "role": "navigation-map-2d",
+      "kind": "localization-map-2d",
+      "path": "map.json"
+    },
+    {
+      "role": "engine-state",
+      "kind": "engine-state",
+      "path": "mapping_state.mcap"
+    }
+  ],
+  "map2dFromLocalization": {
+    "txMm": 5050.0,
+    "tyMm": 50.0,
+    "yawRad": 1.5707963267948966
+  }
+}

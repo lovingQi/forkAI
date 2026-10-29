@@ -15,6 +15,8 @@ def _needs_site(method: str, path: str) -> bool:
         return True
     if method == "DELETE" and path.startswith("maps/"):
         return True
+    if method == "POST" and path.startswith("maps/") and path.endswith("/revisions"):
+        return True
     if method == "POST" and path in {"recordings", "maps/import", "drafts/incremental-analysis"}:
         return True
     if method == "POST" and path.startswith("recordings/") and path.endswith("/stop"):

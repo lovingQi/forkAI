@@ -79,6 +79,16 @@ export async function mappingMaps() {
   return data.maps as { projectId: string; name: string; createdAt: string; engineVersion: string; dimension?: string }[]
 }
 
+export async function editorDocument(id: string) {
+  const { data } = await http.get(`/mapping/maps/${id}/editor`, { timeout: 30000 })
+  return data as { projectId: string; name: string; map: Record<string, any>; map2dFromLocalization: { txMm: number; tyMm: number; yawRad: number } }
+}
+
+export async function saveMapRevision(id: string, body: { name: string; map: Record<string, any>; map2dFromLocalization: { txMm: number; tyMm: number; yawRad: number }; editLog: unknown[] }) {
+  const { data } = await http.post(`/mapping/maps/${id}/revisions`, body, { timeout: 30000 })
+  return data as { projectId: string; name: string }
+}
+
 export async function deleteMappingMap(id: string) {
   await http.delete(`/mapping/maps/${id}`)
 }

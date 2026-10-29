@@ -1,0 +1,13 @@
+{
+  "createdAt": "2026-10-29T03:08:03.229879+00:00",
+  "parentProjectId": "editor-fixture-2d",
+  "parentMapSha256": "45d51ac2715983b1da463093c518530f63d4d6c3c0fb4e66002ec0b80b3c07d2",
+  "parentStateSha256": "c24d310b5596664bf541b8387dc6da21ca6927ac9d69596e99b895914a2ba77b",
+  "editLog": [
+    {
+      "kind": "edit",
+      "affectedPointCount": 9747
+    }
+  ],
+  "dimension": "2d"
+}

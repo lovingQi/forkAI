@@ -6,6 +6,7 @@ navigation-map-2d + engine-state，并且拒绝未在 representations 中声明�
 """
 import hashlib
 import json
+import math
 import os
 import shutil
 import uuid
@@ -15,6 +16,7 @@ from pathlib import Path
 from ..errors import MappingError
 from ..preview.png import encode_gray8, occupancy_gray
 from .umcl import is_umcl_json_map
+from .umcl_objects import normalize_umcl, validate_revision
 
 
 def umcl_preview_png(umcl: dict) -> bytes:
@@ -87,6 +89,13 @@ def project_manifest(project_id: str, name: str, robot_resource_id: str, endpoin
             "objective": objective,
         }
     return project
+
+
+def _uses_map_json(project: dict) -> bool:
+    for item in project.get("representations") or []:
+        if item.get("role") == "navigation-map-2d" and item.get("path") == "map.json":
+            return True
+    return False
 
 
 def validate_project(project: dict) -> None:
@@ -196,6 +205,93 @@ class MapStore:
 
     def delete(self, project_id: str) -> None:
         shutil.rmtree(self._dir(project_id))
+
+    def editor_document(self, project_id: str) -> dict:
+        path = self._dir(project_id)
+        project = json.loads((path / "project.json").read_text(encoding="utf-8"))
+        map_path = path / "map.json"
+        if not map_path.is_file() or not _uses_map_json(project):
+            raise MappingError("MAPPING_INPUT_INVALID", "这张地图不能编辑", status=404)
+        try:
+            umcl = json.loads(map_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise MappingError("MAPPING_RESULT_INVALID", "map.json 不是合法 JSON") from exc
+        if not is_umcl_json_map(umcl):
+            raise MappingError("MAPPING_RESULT_INVALID", "map.json 不是合法 UMCL 地图")
+        return {
+            "projectId": project["projectId"],
+            "name": project["name"],
+            "map": umcl,
+            "map2dFromLocalization": project.get("map2dFromLocalization") or {"txMm": 0, "tyMm": 0, "yawRad": 0},
+        }
+
+    def commit_edit(self, parent_id: str, name: str, umcl: dict, transform: dict, edit_log: list) -> dict:
+        if not isinstance(name, str) or not 1 <= len(name) <= 64:
+            raise MappingError("MAPPING_INPUT_INVALID", "地图名称需要 1 到 64 个字符")
+        if not isinstance(transform, dict):
+            raise MappingError("MAPPING_INPUT_INVALID", "地图变换无效")
+        try:
+            next_yaw = float(transform.get("yawRad"))
+            tx = float(transform.get("txMm"))
+            ty = float(transform.get("tyMm"))
+        except (TypeError, ValueError) as exc:
+            raise MappingError("MAPPING_INPUT_INVALID", "地图变换无效") from exc
+        if not all(math.isfinite(value) for value in (next_yaw, tx, ty)):
+            raise MappingError("MAPPING_INPUT_INVALID", "地图变换无效")
+        parent = self._dir(parent_id)
+        project = json.loads((parent / "project.json").read_text(encoding="utf-8"))
+        if not _uses_map_json(project) or not (parent / "map.json").is_file():
+            raise MappingError("MAPPING_INPUT_INVALID", "这张地图不能编辑", status=404)
+        state = parent / "mapping_state.mcap"
+        if not state.is_file():
+            raise MappingError("MAPPING_RESULT_INVALID", "工程缺少引擎状态")
+        parent_transform = project.get("map2dFromLocalization") or {}
+        try:
+            parent_yaw = float(parent_transform.get("yawRad") or 0)
+        except (TypeError, ValueError) as exc:
+            raise MappingError("MAPPING_RESULT_INVALID", "父地图变换无效") from exc
+        if not isinstance(edit_log, list):
+            raise MappingError("MAPPING_INPUT_INVALID", "编辑记录无效")
+        cleaned = normalize_umcl(umcl)
+        validate_revision(cleaned, parent_yaw, next_yaw)
+        project_id = str(uuid.uuid4())
+        incoming = self.root / f".incoming-{project_id}"
+        final = self.root / project_id
+        if incoming.exists():
+            shutil.rmtree(incoming)
+        incoming.mkdir()
+        for filename in ("mapping_state.mcap", "mapping-profile.json", "online-input.json", "robot.urdf"):
+            source = parent / filename
+            if source.is_file():
+                shutil.copy2(source, incoming / filename)
+        if _sha256(incoming / "mapping_state.mcap") != _sha256(state):
+            shutil.rmtree(incoming)
+            raise MappingError("MAPPING_RESULT_INVALID", "引擎状态复制后不一致")
+        (incoming / "map.json").write_text(json.dumps(cleaned, ensure_ascii=False, indent=2), encoding="utf-8")
+        (incoming / "preview.png").write_bytes(umcl_preview_png(cleaned))
+        child = project_manifest(
+            project_id,
+            name,
+            ((project.get("onlineSource") or {}).get("robotResourceId") or ""),
+            ((project.get("onlineSource") or {}).get("endpoint") or ""),
+            ((project.get("onlineSource") or {}).get("sourceStopReason")),
+        )
+        child["map2dFromLocalization"] = {"txMm": tx, "tyMm": ty, "yawRad": next_yaw}
+        validate_project(child)
+        (incoming / "project.json").write_text(json.dumps(child, ensure_ascii=False, indent=2), encoding="utf-8")
+        (incoming / "edit-log.json").write_text(json.dumps(edit_log, ensure_ascii=False, indent=2), encoding="utf-8")
+        meta = {
+            "createdAt": datetime.now(timezone.utc).isoformat(),
+            "parentProjectId": parent_id,
+            "parentMapSha256": _sha256(parent / "map.json"),
+            "parentStateSha256": _sha256(state),
+            "editLog": edit_log,
+            "dimension": "2d",
+        }
+        (incoming / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+        _fsync_tree(incoming)
+        os.rename(incoming, final)
+        return {"projectId": project_id, "name": name}
 
     def preview_png(self, project_id: str) -> bytes:
         path = self._dir(project_id) / "preview.png"
