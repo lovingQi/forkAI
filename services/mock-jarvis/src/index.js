@@ -138,7 +138,8 @@ const state = {
   motor: true,
   alarm: 'normal', // normal | estop | lost | stuck
   // 与仿真地图 PathPoint p1 同坐标系（mm）；无地图时仍可用该演示位姿
-  pose: [-11696, -624, 1.57],
+  // pose[2] 为度（对齐真车 /api/state pose.th）
+  pose: [-11696, -624, 90],
   vel: [0, 0, 0],
   fork_height: 120,
   fork_cur_dis: 0,
@@ -178,7 +179,7 @@ const DRIVE_TICK_MS = 50
 const HEAD_DURATION_MS = 1000
 const HEAD_TICK_MS = 50
 // 真车口径：trans 即线速度 mm/s（如 500=0.5m/s）；rot±50 为转向幅度
-const DRIVE_ANG_AT_ROT50 = 0.5 // rad/s when |rot|=50
+const DRIVE_ANG_AT_ROT50 = 0.5 // rad/s when |rot|=50（写入 pose 时再转为度）
 
 function clearDriveTimer() {
   if (driveTimer) {
@@ -219,10 +220,12 @@ function startDriveLoopIfNeeded() {
       return
     }
     const dt = DRIVE_TICK_MS / 1000
-    const th = state.pose[2]
-    state.pose[0] += vx * Math.cos(th) * dt
-    state.pose[1] += vx * Math.sin(th) * dt
-    state.pose[2] = th + omega * dt
+    const th = state.pose[2] // 度
+    const thRad = (th * Math.PI) / 180
+    state.pose[0] += vx * Math.cos(thRad) * dt
+    state.pose[1] += vx * Math.sin(thRad) * dt
+    // vel[2] 仍为 rad/s；pose[2] 为度
+    state.pose[2] = th + ((omega * dt) * 180) / Math.PI
   }, DRIVE_TICK_MS)
 }
 
@@ -247,7 +250,7 @@ function routeBegin(name, cmd) {
   state.substatus = MODE_NAMES[cmd] || ''
 }
 
-/** head：约 1s 平滑转到目标角（度→弧度）；mock_fail 不改角 */
+/** head：约 1s 平滑转到目标角（度）；mock_fail 不改角 */
 function startHeadSim(name, node) {
   const fail = !!node.mock_fail
   const angleDeg = Number(node.angle || 0)
@@ -258,13 +261,13 @@ function startHeadSim(name, node) {
   if (fail) {
     setTimeout(() => {
       routeEnd()
-      console.log(`【mock车】head 结束 pose[2]=${state.pose[2].toFixed(3)}rad fail=true`)
+      console.log(`【mock车】head 结束 pose[2]=${state.pose[2].toFixed(3)}deg fail=true`)
     }, HEAD_DURATION_MS)
     return
   }
 
   const startTh = state.pose[2]
-  const delta = (angleDeg * Math.PI) / 180
+  const delta = angleDeg
   const targetTh = startTh + delta
   const ticks = Math.max(1, Math.round(HEAD_DURATION_MS / HEAD_TICK_MS))
   let step = 0
@@ -275,7 +278,7 @@ function startHeadSim(name, node) {
       state.pose[2] = targetTh
       clearHeadTimer()
       routeEnd()
-      console.log(`【mock车】head 结束 pose[2]=${state.pose[2].toFixed(3)}rad fail=false`)
+      console.log(`【mock车】head 结束 pose[2]=${state.pose[2].toFixed(3)}deg fail=false`)
       return
     }
     const t = step / ticks
@@ -497,12 +500,12 @@ function startFollowBackMove(name, node) {
     return
   }
 
-  // 对齐路径起点；yaw 为弧度，沿切线
+  // 对齐路径起点；yaw 为度，沿切线
   state.pose[0] = samples[0].x
   state.pose[1] = samples[0].y
   const d0x = samples[1].x - samples[0].x
   const d0y = samples[1].y - samples[0].y
-  if (d0x !== 0 || d0y !== 0) state.pose[2] = Math.atan2(d0y, d0x)
+  if (d0x !== 0 || d0y !== 0) state.pose[2] = (Math.atan2(d0y, d0x) * 180) / Math.PI
 
   console.log(
     `【mock车】follow_back 路径动画 name=${name} path=${hopPath.join('→')} duration=${MOVE_DURATION_MS}ms`
@@ -514,20 +517,20 @@ function startFollowBackMove(name, node) {
   pathPointsForHigh = samples.map((p) => ({ x: p.x, y: p.y }))
   state.vel = [0.3, 0, 0]
 
-  // 每 tick 最多转这么多弧度，避免弯道硬切（约 180°/s @100ms）
-  const YAW_MAX_STEP = 0.35
+  // 每 tick 最多转这么多度，避免弯道硬切（原 0.35rad ≈ 20°）
+  const YAW_MAX_STEP = (0.35 * 180) / Math.PI
   const YAW_LERP = 0.35
 
-  function shortestAngleDelta(from, to) {
+  function shortestAngleDeltaDeg(from, to) {
     let d = to - from
-    while (d > Math.PI) d -= Math.PI * 2
-    while (d < -Math.PI) d += Math.PI * 2
+    while (d > 180) d -= 360
+    while (d < -180) d += 360
     return d
   }
 
-  function smoothYawToward(target) {
+  function smoothYawToward(targetDeg) {
     const cur = state.pose[2]
-    let delta = shortestAngleDelta(cur, target)
+    let delta = shortestAngleDeltaDeg(cur, targetDeg)
     // 指数逼近 + 单步上限
     delta *= YAW_LERP
     if (delta > YAW_MAX_STEP) delta = YAW_MAX_STEP
@@ -554,7 +557,7 @@ function startFollowBackMove(name, node) {
     state.pose[1] = cur.y
     const dx = cur.x - prev.x
     const dy = cur.y - prev.y
-    if (dx !== 0 || dy !== 0) smoothYawToward(Math.atan2(dy, dx))
+    if (dx !== 0 || dy !== 0) smoothYawToward((Math.atan2(dy, dx) * 180) / Math.PI)
     pathPointsForHigh = samples.slice(step).map((p) => ({ x: p.x, y: p.y }))
     state.vel = [0.3, 0, 0]
   }, MOVE_TICK_MS)

@@ -127,7 +127,7 @@ forkAI 部署在叉车车载工控机，外部实体：
 - **FlowEngine（engine.py，app.state 单例）**：
   - **互斥**：全局同一时刻仅一条流 running|paused（FlowBusyError → 409 already_running）。
   - **状态机**：流六态 idle/running/paused/succeeded/failed/cancelled；节点态 pending/running/paused/succeeded/failed/skipped；每次变化广播 `flow_event`。
-  - **完成判定**：集中 `_judge_node` + `_physical_verdict`——`current_routes.routes` 名消失（→`TEMP_DEFAULT`）后按物理量复核：focklift 叉高容差（≥10mm）、charge 看 charing、head 角度差 ≤0.15rad；**follow_back/get_pallet 无物理量可判返回 None**（只靠 route 消失判成功）；支持"瞬时完成"；10s 启动宽限未见 running 判 failed；节点超时（默认 120s，节点/流 options 可覆盖）停车判 failed。
+  - **完成判定**：集中 `_judge_node` + `_physical_verdict`——`current_routes.routes` 名消失（→`TEMP_DEFAULT`）后按物理量复核：focklift 叉高容差（≥10mm）、charge 看 charing、head 角度差 ≤8.6°（pose.th 与 params.angle 均为度）；**follow_back/get_pallet 无物理量可判返回 None**（只靠 route 消失判成功）；支持"瞬时完成"；10s 启动宽限未见 running 判 failed；节点超时（默认 120s，节点/流 options 可覆盖）停车判 failed。
   - **暂停/恢复**：pause 立即 `control("stop")`、当前节点记 paused、`_pause_gen` 代数递增；resume 当前节点**从头重发** route；执行期被打断（代数变化）强制重发；cancel 停车 + task.cancel，剩余 skipped。
   - **故障韧性**：下发重试 3 次间隔 1s；轮询连续失败 ≥10 次（≈5s）判节点 failed；断连期 2s 节流广播 `flow_jarvis_lost`，恢复广播 `flow_jarvis_back` 并 `_Redispatch` 重发当前节点。
   - **低电量**：battery<20% → 自动 pause + TTS `flow_low_battery` + 自动下发 charge(goal=auto)；≥80% 广播 `flow_charge_full`，**不自动 resume**。
@@ -265,7 +265,7 @@ cmd 与 JMode 处理者对应（源码 AddTask 注册）：`drive/safedrive`→J
 | mode | string | JMode 名（来自 buffer robot info） |
 | status | string | `"mode,子状态"` 拼接（:154） |
 | vel | string | `"%.02lf,%.02lf,%.02lf"` = v,w,vy（:84/156） |
-| pose | string | `"x,y,th"`（th 弧度；长度单位依车型参数，毫米口径待真车复核） |
+| pose | string | `"x,y,th"`（th 度；长度单位依车型参数，毫米口径待真车复核） |
 | score | int | 定位评分 |
 | battery | int | 百分比 |
 | charing | bool | 充电中（**原文如此，非拼写错误**；:160 `mRobot->IsCharged()`） |

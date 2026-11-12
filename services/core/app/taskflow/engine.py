@@ -6,14 +6,13 @@
   （"paused" 为节点态扩展：暂停时当前节点记为 paused，resume 从头重发该节点）
 - 并行组：组内节点并发执行，全部 succeeded 才出组；任一 failed → 该成员的 fail 边
   （组级别 adj 取成员第一条 fail 边），无则流 failed
-- 完成判定集中在 _is_node_done（mock 语义；真车语义待步骤21校准，只改这一个函数）
+- 完成判定集中在 _judge_node + _physical_verdict（真车 pose.th 为度；head 物理复核按度）
 - 低电量：节点轮询时检查 state.battery < low_battery_pct → 自动 pause +
   TTS flow_low_battery + 自动下发 charge(goal=auto)；充到 resume_battery_pct 广播
   flow_charge_full（默认不自动 resume，人工/API 恢复——避免无人值守车在充电桩前自启动）
 - 每次节点/流状态变化 broadcast "flow_event" {flowId,nodeId,nodeStatus,flowStatus}
 """
 import asyncio
-import math
 import time
 
 from ..jarvis.routes_builder import build_route
@@ -41,19 +40,19 @@ _FLOW_TO_MISSION = {
 
 
 def _pose_th(state: dict) -> float | None:
-    """从 state.pose（"x,y,th" 字符串）取朝向角 th。"""
+    """从 state.pose（"x,y,th" 字符串）取朝向角 th（度；真车 Jarvis GetTh 口径）。"""
     try:
         return float(str(state.get("pose") or "0,0,0").split(",")[2])
     except (ValueError, IndexError):
         return None
 
 
-def _norm_angle(a: float) -> float:
-    """归一化到 (-pi, pi]。"""
-    while a > math.pi:
-        a -= 2 * math.pi
-    while a <= -math.pi:
-        a += 2 * math.pi
+def _norm_angle_deg(a: float) -> float:
+    """归一化到 (-180, 180]。"""
+    while a > 180.0:
+        a -= 360.0
+    while a <= -180.0:
+        a += 360.0
     return a
 
 
@@ -619,9 +618,11 @@ class FlowEngine:
             th_now = _pose_th(state)
             if ctx.get("start_th") is None or th_now is None:
                 return None
-            want = math.radians(float(params.get("angle", 0)))
-            delta = _norm_angle(th_now - ctx["start_th"])
-            return abs(delta - want) <= 0.15  # ≈8.6° 容差
+            # pose.th 与 params.angle 均为度；误差再归一，避免 ±180 边界误杀
+            want = float(params.get("angle", 0))
+            delta = _norm_angle_deg(th_now - ctx["start_th"])
+            err = abs(_norm_angle_deg(delta - want))
+            return err <= 8.6  # 原 0.15rad ≈ 8.6°
         # follow_back / get_pallet：state 无物理量可判（目标点是地图名、识别结果无字段）
         return None
 

@@ -41,7 +41,7 @@ cd services/core && .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 19000
 | 任务 | 指令示例 | 预期话术 | mock 断言（脚本项） |
 |------|----------|----------|---------------------|
 | drive 点动 | 前进 | 好的，前进 | week2 #2（drive payload + 2s 看门狗 stop） |
-| head 旋转 | 原地转90度 | 好的，原地转90度 | week2 #2（pose[2] 变化 +1.57rad） |
+| head 旋转 | 原地转90度 | 好的，原地转90度 | week2 #2（pose[2]/度 变化约 +90°） |
 | focklift 货叉 | 升到150毫米 | 好的，货叉调到150毫米 | week2 #2（fork_height==150）；大幅确认流 week2 回归含货叉确认 |
 | follow_back 点到点 | 从A点到B点 → 确认 | 确认执行：…吗 → 好的，从…到… | week2 #2（确认流）+ #3（追问流） |
 | get_pallet 取货 | 识别栈板 | 好的，开始栈板识别取货 | week2 #2（status=栈板识别取货完成） |
